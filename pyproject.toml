@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Local pipeline: drone or smartphone video -> 3D indoor model (Gaussian Splatting)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "typer>=0.15",
 ]

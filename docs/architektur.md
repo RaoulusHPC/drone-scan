@@ -317,6 +317,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | 0008 | Gegenstandssuche über 2D-Detektion + 3D-Lifting statt semantischer 3D-Felder | angenommen |
 | 0009 | Python 3.12 + uv (Pipeline/Server), TypeScript + Vite (Viewer), Docker Compose (Betrieb) | angenommen |
 | 0010 | Dual-GPU-Unterstützung: Entwicklung auf GTX 1080 (sm_61), Ziel RTX 2060 (sm_75); CUDA 12.6 + PyTorch ≤ 2.14 gepinnt | angenommen |
+| 0011 | Projektlizenz **AGPL-3.0-or-later** für den eigenen Code (Copyleft auch bei Netznutzung); fremde Abhängigkeiten weiter nach ADR-0007 | angenommen |
 
 ---
 
