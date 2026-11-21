@@ -34,7 +34,8 @@ test: ## CPU tests (no gpu, no bench)
 check: lint typecheck test ## Run before every PR: lint, types, CPU tests
 
 test-gpu: ## GPU tests with VRAM limit
-	DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu
+	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
+	DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
 
 smoke: ## Pipeline on data/samples/kurz.mp4
 	@echo "make smoke: noch nicht verfügbar – kommt mit den Pipeline-Stufen (M1)." >&2; exit 1

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib
-import shutil
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -47,6 +48,17 @@ def test_cli_help_exits_successfully() -> None:
     assert "drone-scan" in result.output
 
 
+@pytest.mark.parametrize("args", [[], ["does-not-exist"]])
+def test_cli_usage_error_exits_with_2(args: list[str]) -> None:
+    """Given the Typer app,
+    When it is called without a command or with an unknown command,
+    Then it shows usage information and exits with code 2.
+    """
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 2
+
+
 def test_cli_version_option() -> None:
     """Given the Typer app,
     When `--version` is requested,
@@ -63,11 +75,11 @@ def test_console_script_is_installed() -> None:
     When the `drone-scan --help` console script is executed,
     Then it exits with code 0.
     """
-    executable = shutil.which("drone-scan")
-    assert executable is not None, "console script missing - run `make setup`"
+    executable = Path(sys.executable).parent / "drone-scan"
+    assert executable.is_file(), "console script missing - run `make setup`"
 
     result = subprocess.run(
-        [executable, "--help"], capture_output=True, text=True, timeout=30, check=False
+        [str(executable), "--help"], capture_output=True, text=True, timeout=30, check=False
     )
 
     assert result.returncode == 0

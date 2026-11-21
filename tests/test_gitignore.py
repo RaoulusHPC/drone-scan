@@ -43,7 +43,16 @@ def test_private_and_large_artefacts_are_ignored(path: str) -> None:
     assert is_ignored(path)
 
 
-@pytest.mark.parametrize("path", ["data/samples/kurz.mp4", "src/dronescan/cli.py"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "data/samples/kurz.mp4",
+        "src/dronescan/cli.py",
+        "src/dronescan/models/__init__.py",
+        "src/dronescan/workspace/layout.py",
+        "src/dronescan/build/plan.py",
+    ],
+)
 def test_samples_and_sources_are_tracked(path: str) -> None:
     """Given a released sample clip or a source file,
     When Git evaluates .gitignore,
