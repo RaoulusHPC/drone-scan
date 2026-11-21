@@ -42,4 +42,4 @@ Der gesamte eigene Code (`src/`, `tests/`, `tools/`, später `viewer/` und `flig
 - Kein Einfluss auf VRAM oder Laufzeit. Für Modellgewichte gilt weiterhin deren eigene Lizenz (`models.lock`).
 - **Rechtliche Prüfung:** Dieser ADR ist keine Rechtsberatung. Vor den ersten Pilotkunden (M4) sollen Lizenz, CLA und Quellcode-Angebot rechtlich geprüft werden. Das ist im Budget in `docs/projektmanagement.md` §8 ergänzt.
 
-**Folgearbeiten (noch nicht im Backlog):** Quellcode-Link in Server und Viewer (M1), Lizenz und Quellcode-Angebot im Export-Bundle (M4), CLA und `CONTRIBUTING.md`, optional SPDX-Header in den Quelldateien.
+**Folgearbeiten (im Backlog):** Quellcode-Link in Server und Viewer (KAN-74, M1), Lizenz und Quellcode-Angebot im Export-Bundle (KAN-75, M4), CLA und `CONTRIBUTING.md` (KAN-76), SPDX-Header in den Quelldateien (KAN-77).

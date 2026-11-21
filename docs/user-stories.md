@@ -3,7 +3,7 @@
 > Generiert aus `backlog/backlog.yaml` mit `tools/backlog_export.py` – **nicht von Hand bearbeiten**.
 > Führendes System für Status und Sprints ist **Jira (Projekt „DRN“ (Schlüssel `KAN`))**. Priorität: MoSCoW → Jira (Must=Highest, Should=High, Could=Medium).
 
-**Umfang:** 12 Epics · 58 Stories/Tasks · 277 Story Points
+**Umfang:** 12 Epics · 64 Stories/Tasks · 284 Story Points
 
 ## Personas
 
@@ -20,27 +20,27 @@
 | Meilenstein | Stories | SP | Must | Should | Could |
 |---|---|---|---|---|---|
 | M0 Fundament & Spikes | 8 | 27 | 8 | 0 | 0 |
-| M1 MVP „Video → Begehung“ | 16 | 72 | 12 | 4 | 0 |
+| M1 MVP „Video → Begehung“ | 20 | 76 | 12 | 7 | 1 |
 | M2 Gegenstandssuche | 6 | 28 | 4 | 1 | 1 |
 | M3 Drohnen-Erfassung | 9 | 41 | 3 | 3 | 3 |
-| M4 Präsentationsreife | 12 | 56 | 3 | 5 | 4 |
-| M5 Assistierter Flug | 7 | 53 | 1 | 3 | 3 |
+| M4 Präsentationsreife | 13 | 57 | 4 | 5 | 4 |
+| M5 Assistierter Flug | 8 | 55 | 1 | 4 | 3 |
 
 ## Übersicht nach Epic
 
 | Epic | Titel | Stories | SP |
 |---|---|---|---|
-| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 7 | 24 |
+| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 8 | 25 |
 | EP-02 / KAN-5 | Erfassung & Import | 5 | 17 |
 | EP-03 / KAN-6 | Frame-Aufbereitung & Qualitätsprüfung | 3 | 11 |
 | EP-04 / KAN-7 | Rekonstruktion: Kameraposen, Maßstab, Zusammenführung | 5 | 31 |
 | EP-05 / KAN-8 | Virtuelle Begehung (Splat & Viewer) | 5 | 29 |
 | EP-06 / KAN-9 | Gegenstandssuche | 6 | 31 |
-| EP-07 / KAN-10 | Präsentation & Export für Verkaufsgespräche | 4 | 23 |
+| EP-07 / KAN-10 | Präsentation & Export für Verkaufsgespräche | 5 | 24 |
 | EP-08 / KAN-11 | Datenschutz & Datenhaltung | 4 | 14 |
 | EP-09 / KAN-12 | Web-App, Jobs & Bedienung | 5 | 21 |
-| EP-10 / KAN-13 | Flugunterstützung & Autonomie | 6 | 45 |
-| EP-11 / KAN-14 | Qualitätssicherung & Compliance | 5 | 16 |
+| EP-10 / KAN-13 | Flugunterstützung & Autonomie | 7 | 47 |
+| EP-11 / KAN-14 | Qualitätssicherung & Compliance | 8 | 19 |
 | EP-12 / KAN-15 | Hardware-Evaluierung & Erfassungsleitfaden | 3 | 15 |
 
 ## EP-01 / KAN-4 – Fundament & Entwicklungsumgebung
@@ -130,6 +130,17 @@ Als **Entwickler (PO + Claude Code)** möchte ich Atlassian-MCP, Skills und Suba
 - [ ] `.mcp.json` verbunden, `/mcp` authentifiziert; Claude Code kann eine KAN-Story lesen und kommentieren.
 - [ ] Hook `block_real_flight.py` blockiert Testbefehl mit `--real-flight` nachweislich (Exit 2).
 - [ ] Board-Spalten und Labels gemäß docs/projektmanagement.md angelegt.
+
+### US-064 / KAN-79: Git LFS für Beispielclips
+
+`Task` · **Should** · 1 SP · M1 MVP „Video → Begehung“ · Labels: infra, claude-code · Abhängig von: –
+
+Als **Entwickler (PO + Claude Code)** möchte ich Git LFS für Videos in `data/samples/`, damit Beispielclips über 20 MB versioniert werden können (CLAUDE.md Regel 5).
+
+**Akzeptanzkriterien**
+
+- [ ] `.gitattributes` leitet `data/samples/**/*.{mp4,mov,mkv}` über LFS; ein Test prüft `git check-attr filter` → `lfs`.
+- [ ] `make setup` führt `git lfs install` aus bzw. meldet fehlendes git-lfs verständlich.
 
 
 ## EP-02 / KAN-5 – Erfassung & Import
@@ -474,6 +485,17 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich Ergebnisse in gängigen 
 - [ ] Exporter für glTF `KHR_gaussian_splatting` als austauschbares Modul (aktiv, sobald Extension ratifiziert).
 - [ ] Validierung mit glTF-Validator bzw. Referenz-Reader im Test.
 
+### US-060 / KAN-75: Lizenztext und Quellcode-Angebot im Offline-Bundle
+
+`Story` · **Must** · 1 SP · M4 Präsentationsreife · Labels: compliance, export, claude-code · Abhängig von: US-042 / KAN-57
+
+Als **Präsentierende (Makler/Verkäufer)** möchte ich dass das geteilte Offline-Bundle Lizenz und Quellcode-Angebot enthält, damit die Weitergabe AGPL-konform ist (ADR-0011).
+
+**Akzeptanzkriterien**
+
+- [ ] Das Bundle enthält `LICENSE`, die Lizenzhinweise der Drittkomponenten und ein Quellcode-Angebot (Link + Version).
+- [ ] Ein Test prüft die Dateien im erzeugten Bundle.
+
 
 ## EP-08 / KAN-11 – Datenschutz & Datenhaltung
 
@@ -655,6 +677,18 @@ Als **Pilot** möchte ich dass die Drohne unbekannte Räume selbstständig erkun
 - [ ] Frontier-basierte Exploration in SITL mit Kollisionsvermeidung; Lizenz der genutzten VIO/SLAM-Komponenten geprüft (GPL nur als separater Prozess).
 - [ ] Bewertung Machbarkeit auf Billig-Hardware als Bericht (Go/No-Go).
 
+### US-063 / KAN-78: Flug-Hook härten (weitere Verbindungsarten zu echten Drohnen)
+
+`Task` · **Should** · 2 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: –
+
+Als **Pilot** möchte ich dass der Claude-Code-Hook alle gängigen Wege zu echter Hardware blockiert, damit Regel 4 (keine Befehle an echte Drohnen) auch ab M5 verlässlich gilt.
+
+**Akzeptanzkriterien**
+
+- [ ] Blockiert zusätzlich MAVProxy `udpout:`/`udpin:`/`tcpin:`, serielle Geräte außerhalb `/dev/tty*`, pymavlink/DroneKit-Verbindungen und MAVSDK-URIs zu fremden Adressen.
+- [ ] `localhost` bzw. `127.0.0.0/8` gilt als SITL und bleibt erlaubt.
+- [ ] Die `xfail`-Tests aus KAN-22 werden zu regulären Tests.
+
 
 ## EP-11 / KAN-14 – Qualitätssicherung & Compliance
 
@@ -715,6 +749,40 @@ Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-
 
 - [ ] `make bench` misst Laufzeit, Peak-VRAM, registrierte Frames, Maßstabsfehler, PSNR/SSIM, Suchtreffer Top-3.
 - [ ] Ergebnisse als CSV/Markdown-Bericht mit Vergleich zum letzten Lauf.
+
+### US-059 / KAN-74: Quellcode-Hinweis in Server und Viewer (AGPL)
+
+`Story` · **Should** · 1 SP · M1 MVP „Video → Begehung“ · Labels: compliance, server, viewer, claude-code · Abhängig von: US-028 / KAN-43, US-037 / KAN-52
+
+Als **Entwickler (PO + Claude Code)** möchte ich dass Viewer und API-Doku Lizenz und Quellcode-Link anzeigen, damit die AGPL-Pflichten (ADR-0011) auch bei Netzbetrieb erfüllt sind.
+
+**Akzeptanzkriterien**
+
+- [ ] Viewer-Menü und OpenAPI-Beschreibung zeigen Lizenz (AGPL-3.0-or-later) und einen konfigurierbaren Quellcode-Link.
+- [ ] Der Vite-Build liefert Source Maps bzw. nicht-minifizierte Quellen aus oder verlinkt sie; die Build-Anleitung ist dokumentiert.
+- [ ] Ein Test prüft, dass der Link in API und Viewer vorhanden ist.
+
+### US-061 / KAN-76: CLA und CONTRIBUTING.md
+
+`Task` · **Should** · 1 SP · M1 MVP „Video → Begehung“ · Labels: compliance · Abhängig von: –
+
+Als **Entwickler (PO + Claude Code)** möchte ich ein Contributor License Agreement und eine Beitragsanleitung, damit externe Beiträge angenommen werden können, ohne die Doppellizenzierung (ADR-0011) zu verhindern.
+
+**Akzeptanzkriterien**
+
+- [ ] `CONTRIBUTING.md` beschreibt Ablauf, Konventionen und CLA-Pflicht.
+- [ ] CLA-Entwurf liegt vor; die rechtliche Prüfung erfolgt mit der Rechtsberatung vor M4 (docs/projektmanagement.md §8).
+
+### US-062 / KAN-77: SPDX-Lizenzheader in Quelldateien
+
+`Task` · **Could** · 1 SP · M1 MVP „Video → Begehung“ · Labels: compliance, claude-code · Abhängig von: –
+
+Als **Entwickler (PO + Claude Code)** möchte ich in jeder Quelldatei `SPDX-License-Identifier: AGPL-3.0-or-later`, damit die Lizenz auch für einzelne Dateien eindeutig ist.
+
+**Akzeptanzkriterien**
+
+- [ ] Alle Dateien in `src/`, `tests/`, `tools/` (später `viewer/`, `flight/`) tragen den SPDX-Header.
+- [ ] Ein pre-commit-Hook oder Test meldet fehlende Header.
 
 
 ## EP-12 / KAN-15 – Hardware-Evaluierung & Erfassungsleitfaden

@@ -687,3 +687,71 @@ US-058,EP-10,Story,Autonome Raumerkundung (Exploration) – Forschungsstory,"Als
 - Lokale ID: US-058 (backlog/backlog.yaml)
 - Abhängig von: US-054, US-055
 - Architektur: docs/architektur.md",Medium,8,m5,flight,spike,
+US-059,EP-11,Story,Quellcode-Hinweis in Server und Viewer (AGPL),"Als **Entwickler (PO + Claude Code)** möchte ich dass Viewer und API-Doku Lizenz und Quellcode-Link anzeigen, damit die AGPL-Pflichten (ADR-0011) auch bei Netzbetrieb erfüllt sind.
+
+## Akzeptanzkriterien
+- Viewer-Menü und OpenAPI-Beschreibung zeigen Lizenz (AGPL-3.0-or-later) und einen konfigurierbaren Quellcode-Link.
+- Der Vite-Build liefert Source Maps bzw. nicht-minifizierte Quellen aus oder verlinkt sie; die Build-Anleitung ist dokumentiert.
+- Ein Test prüft, dass der Link in API und Viewer vorhanden ist.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-059 (backlog/backlog.yaml)
+- Abhängig von: US-028, US-037
+- Architektur: docs/architektur.md",High,1,m1,compliance,server,viewer
+US-060,EP-07,Story,Lizenztext und Quellcode-Angebot im Offline-Bundle,"Als **Präsentierende (Makler/Verkäufer)** möchte ich dass das geteilte Offline-Bundle Lizenz und Quellcode-Angebot enthält, damit die Weitergabe AGPL-konform ist (ADR-0011).
+
+## Akzeptanzkriterien
+- Das Bundle enthält `LICENSE`, die Lizenzhinweise der Drittkomponenten und ein Quellcode-Angebot (Link + Version).
+- Ein Test prüft die Dateien im erzeugten Bundle.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-060 (backlog/backlog.yaml)
+- Abhängig von: US-042
+- Architektur: docs/architektur.md",Highest,1,m4,compliance,export,claude-code
+US-061,EP-11,Task,CLA und CONTRIBUTING.md,"Als **Entwickler (PO + Claude Code)** möchte ich ein Contributor License Agreement und eine Beitragsanleitung, damit externe Beiträge angenommen werden können, ohne die Doppellizenzierung (ADR-0011) zu verhindern.
+
+## Akzeptanzkriterien
+- `CONTRIBUTING.md` beschreibt Ablauf, Konventionen und CLA-Pflicht.
+- CLA-Entwurf liegt vor; die rechtliche Prüfung erfolgt mit der Rechtsberatung vor M4 (docs/projektmanagement.md §8).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-061 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",High,1,m1,compliance,,
+US-062,EP-11,Task,SPDX-Lizenzheader in Quelldateien,"Als **Entwickler (PO + Claude Code)** möchte ich in jeder Quelldatei `SPDX-License-Identifier: AGPL-3.0-or-later`, damit die Lizenz auch für einzelne Dateien eindeutig ist.
+
+## Akzeptanzkriterien
+- Alle Dateien in `src/`, `tests/`, `tools/` (später `viewer/`, `flight/`) tragen den SPDX-Header.
+- Ein pre-commit-Hook oder Test meldet fehlende Header.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-062 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",Medium,1,m1,compliance,claude-code,
+US-063,EP-10,Task,Flug-Hook härten (weitere Verbindungsarten zu echten Drohnen),"Als **Pilot** möchte ich dass der Claude-Code-Hook alle gängigen Wege zu echter Hardware blockiert, damit Regel 4 (keine Befehle an echte Drohnen) auch ab M5 verlässlich gilt.
+
+## Akzeptanzkriterien
+- Blockiert zusätzlich MAVProxy `udpout:`/`udpin:`/`tcpin:`, serielle Geräte außerhalb `/dev/tty*`, pymavlink/DroneKit-Verbindungen und MAVSDK-URIs zu fremden Adressen.
+- `localhost` bzw. `127.0.0.0/8` gilt als SITL und bleibt erlaubt.
+- Die `xfail`-Tests aus KAN-22 werden zu regulären Tests.
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-063 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",High,2,m5,flight,,
+US-064,EP-01,Task,Git LFS für Beispielclips,"Als **Entwickler (PO + Claude Code)** möchte ich Git LFS für Videos in `data/samples/`, damit Beispielclips über 20 MB versioniert werden können (CLAUDE.md Regel 5).
+
+## Akzeptanzkriterien
+- `.gitattributes` leitet `data/samples/**/*.{mp4,mov,mkv}` über LFS; ein Test prüft `git check-attr filter` → `lfs`.
+- `make setup` führt `git lfs install` aus bzw. meldet fehlendes git-lfs verständlich.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-064 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",High,1,m1,infra,claude-code,
