@@ -30,22 +30,22 @@
 
 | Epic | Titel | Stories | SP |
 |---|---|---|---|
-| EP-01 | Fundament & Entwicklungsumgebung | 7 | 24 |
-| EP-02 | Erfassung & Import | 5 | 17 |
-| EP-03 | Frame-Aufbereitung & Qualitätsprüfung | 3 | 11 |
-| EP-04 | Rekonstruktion: Kameraposen, Maßstab, Zusammenführung | 5 | 31 |
-| EP-05 | Virtuelle Begehung (Splat & Viewer) | 5 | 29 |
-| EP-06 | Gegenstandssuche | 6 | 31 |
-| EP-07 | Präsentation & Export für Verkaufsgespräche | 4 | 23 |
-| EP-08 | Datenschutz & Datenhaltung | 4 | 14 |
-| EP-09 | Web-App, Jobs & Bedienung | 5 | 21 |
-| EP-10 | Flugunterstützung & Autonomie | 6 | 45 |
-| EP-11 | Qualitätssicherung & Compliance | 5 | 16 |
-| EP-12 | Hardware-Evaluierung & Erfassungsleitfaden | 3 | 15 |
+| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 7 | 24 |
+| EP-02 / KAN-5 | Erfassung & Import | 5 | 17 |
+| EP-03 / KAN-6 | Frame-Aufbereitung & Qualitätsprüfung | 3 | 11 |
+| EP-04 / KAN-7 | Rekonstruktion: Kameraposen, Maßstab, Zusammenführung | 5 | 31 |
+| EP-05 / KAN-8 | Virtuelle Begehung (Splat & Viewer) | 5 | 29 |
+| EP-06 / KAN-9 | Gegenstandssuche | 6 | 31 |
+| EP-07 / KAN-10 | Präsentation & Export für Verkaufsgespräche | 4 | 23 |
+| EP-08 / KAN-11 | Datenschutz & Datenhaltung | 4 | 14 |
+| EP-09 / KAN-12 | Web-App, Jobs & Bedienung | 5 | 21 |
+| EP-10 / KAN-13 | Flugunterstützung & Autonomie | 6 | 45 |
+| EP-11 / KAN-14 | Qualitätssicherung & Compliance | 5 | 16 |
+| EP-12 / KAN-15 | Hardware-Evaluierung & Erfassungsleitfaden | 3 | 15 |
 
-## EP-01 – Fundament & Entwicklungsumgebung
+## EP-01 / KAN-4 – Fundament & Entwicklungsumgebung
 
-### US-001: Repo-Grundgerüst mit uv, Paketstruktur und Makefile
+### US-001 / KAN-16: Repo-Grundgerüst mit uv, Paketstruktur und Makefile
 
 `Task` · **Must** · 3 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: –
 
@@ -58,9 +58,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich ein Repository mit der in CLAU
 - [ ] Paketstruktur `src/dronescan/{common,capture,ingest,sfm,recon,search,privacy,export,server}` existiert mit Typer-CLI `drone-scan --help`.
 - [ ] `.gitignore` schließt `workspace/`, `data/` (außer `data/samples/`) und Modellgewichte aus.
 
-### US-002: CI-Pipeline (CPU) mit Lint, Typen, Tests
+### US-002 / KAN-17: CI-Pipeline (CPU) mit Lint, Typen, Tests
 
-`Task` · **Must** · 2 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-001
+`Task` · **Must** · 2 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-001 / KAN-16
 
 Als **Entwickler (PO + Claude Code)** möchte ich dass jeder Push automatisch geprüft wird, damit Fehler und Regelverstöße früh auffallen.
 
@@ -70,9 +70,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich dass jeder Push automatisch ge
 - [ ] Ein fehlschlagender Test oder Typfehler blockiert den Merge (Branch-Schutz dokumentiert).
 - [ ] Laufzeit der CI < 10 min.
 
-### US-003: Docker-Images für Worker (CUDA) und COLMAP
+### US-003 / KAN-18: Docker-Images für Worker (CUDA) und COLMAP
 
-`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: infra · Abhängig von: US-001
+`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: infra · Abhängig von: US-001 / KAN-16
 
 Als **Entwickler (PO + Claude Code)** möchte ich reproduzierbare Container für GPU-Pipeline und COLMAP, damit die Software auf jedem Ubuntu-Laptop mit NVIDIA-GPU gleich läuft.
 
@@ -82,9 +82,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich reproduzierbare Container für
 - [ ] `docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1080 (6, 1) ohne Kompatibilitätswarnung.
 - [ ] README beschreibt Voraussetzungen (Treiber, NVIDIA Container Toolkit) inkl. Prüfbefehl.
 
-### US-004: Spike: COLMAP + gsplat auf GTX 1080 (6-GB-Grenze) mit Smartphone-Video
+### US-004 / KAN-19: Spike: COLMAP + gsplat auf GTX 1080 (6-GB-Grenze) mit Smartphone-Video
 
-`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: spike, sfm, recon · Abhängig von: US-003
+`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: spike, sfm, recon · Abhängig von: US-003 / KAN-18
 
 Als **Entwickler (PO + Claude Code)** möchte ich nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1080 im 6-GB-Budget der RTX 2060 rekonstruierbar ist, damit das Hauptrisiko (R-01, R-03) vor der Umsetzung bewertet ist.
 
@@ -95,9 +95,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich nachweisen, dass ein Raum aus 
 - [ ] Je Raum dokumentiert: registrierte Frames (%), Laufzeit je Stufe, Peak-VRAM, subjektive Qualität (Screenshots).
 - [ ] Ergebnisbericht `docs/spikes/spike-01.md` mit Empfehlung für Profilparameter `low_vram_6gb`.
 
-### US-005: Konfigurationssystem mit Profilen und VRAM-Limit
+### US-005 / KAN-20: Konfigurationssystem mit Profilen und VRAM-Limit
 
-`Task` · **Must** · 3 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-001
+`Task` · **Must** · 3 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-001 / KAN-16
 
 Als **Entwickler (PO + Claude Code)** möchte ich zentrale Konfiguration mit Profilen `low_vram_6gb` und `default_8gb`, damit alle Stufen dieselben Grenzwerte nutzen und der Zielrechner simulierbar ist.
 
@@ -107,9 +107,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich zentrale Konfiguration mit Pro
 - [ ] `DRONESCAN_VRAM_LIMIT_GB` setzt `torch.cuda.set_per_process_memory_fraction` beim Start jeder GPU-Stufe.
 - [ ] Unit-Tests für Laden, Überschreiben und ungültige Werte.
 
-### US-006: Stufen-Framework: Manifest, Caching, Exitcodes
+### US-006 / KAN-21: Stufen-Framework: Manifest, Caching, Exitcodes
 
-`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-005
+`Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: infra, claude-code · Abhängig von: US-005 / KAN-20
 
 Als **Entwickler (PO + Claude Code)** möchte ich eine gemeinsame Basisklasse für Pipeline-Stufen, damit jede Stufe idempotent, nachvollziehbar und cachebar ist.
 
@@ -119,7 +119,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich eine gemeinsame Basisklasse f�
 - [ ] Bei unveränderten Eingaben und Parametern wird die Stufe übersprungen; `--force` erzwingt Neulauf.
 - [ ] Exitcodes 0/10/20/30/1 sind implementiert und getestet; OOM wird als 30 erkannt.
 
-### US-007: Jira- und Claude-Code-Workflow einrichten
+### US-007 / KAN-22: Jira- und Claude-Code-Workflow einrichten
 
 `Task` · **Must** · 1 SP · M0 Fundament & Spikes · Labels: infra · Abhängig von: –
 
@@ -132,11 +132,11 @@ Als **Entwickler (PO + Claude Code)** möchte ich Atlassian-MCP, Skills und Suba
 - [ ] Board-Spalten und Labels gemäß docs/projektmanagement.md angelegt.
 
 
-## EP-02 – Erfassung & Import
+## EP-02 / KAN-5 – Erfassung & Import
 
-### US-013: Scan anlegen und Videos importieren (CLI)
+### US-013 / KAN-28: Scan anlegen und Videos importieren (CLI)
 
-`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: capture, claude-code · Abhängig von: US-006
+`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: capture, claude-code · Abhängig von: US-006 / KAN-21
 
 Als **Pilot** möchte ich einen Scan anlegen und ein oder mehrere Videos (je Akkuflug) hinzufügen, damit alle Aufnahmen eines Gebäudes zusammen verarbeitet werden.
 
@@ -146,9 +146,9 @@ Als **Pilot** möchte ich einen Scan anlegen und ein oder mehrere Videos (je Akk
 - [ ] `drone-scan flight add <scan> <video>` kopiert das Video, liest Metadaten (ffprobe: Auflösung, fps, Dauer, Codec, Rotation) und vergibt eine Flug-ID.
 - [ ] Nicht unterstützte Formate oder defekte Dateien → Exit 10 mit verständlicher Meldung.
 
-### US-014: Kameraprofil und Intrinsik-Schätzung
+### US-014 / KAN-29: Kameraprofil und Intrinsik-Schätzung
 
-`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: capture, sfm · Abhängig von: US-013
+`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: capture, sfm · Abhängig von: US-013 / KAN-28
 
 Als **Pilot** möchte ich dass das System meine Kamera (Drohne/Handy/Action-Cam) passend behandelt, damit die Rekonstruktion auch bei Weitwinkel/Fisheye gelingt.
 
@@ -158,9 +158,9 @@ Als **Pilot** möchte ich dass das System meine Kamera (Drohne/Handy/Action-Cam)
 - [ ] Ohne Profil: automatische Schätzung durch COLMAP, Ergebnis wird im Scan gespeichert.
 - [ ] Optionaler Kalibrierbefehl mit Schachbrett-/ChArUco-Video.
 
-### US-015: Upload über Smartphone-Browser
+### US-015 / KAN-30: Upload über Smartphone-Browser
 
-`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: server, viewer · Abhängig von: US-013, US-037
+`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: server, viewer · Abhängig von: US-013 / KAN-28, US-037 / KAN-52
 
 Als **Pilot** möchte ich Videos direkt vom Android-Smartphone hochladen, damit ich keinen Kartenleser und keine Kommandozeile brauche.
 
@@ -169,9 +169,9 @@ Als **Pilot** möchte ich Videos direkt vom Android-Smartphone hochladen, damit 
 - [ ] Upload großer Dateien (≥ 4 GB) per Chunked Upload mit Fortschrittsanzeige und Fortsetzen nach Abbruch.
 - [ ] Nach dem Upload erscheint der Flug im Scan mit Metadaten.
 
-### US-016: Telemetrie-Import (optional)
+### US-016 / KAN-31: Telemetrie-Import (optional)
 
-`Story` · **Could** · 3 SP · M3 Drohnen-Erfassung · Labels: capture · Abhängig von: US-013
+`Story` · **Could** · 3 SP · M3 Drohnen-Erfassung · Labels: capture · Abhängig von: US-013 / KAN-28
 
 Als **Pilot** möchte ich vorhandene Flugtelemetrie (CSV, ArduPilot-Log, SRT-Untertitel) mit dem Video verknüpfen, damit Höhe/Lage die Rekonstruktion stützen.
 
@@ -180,9 +180,9 @@ Als **Pilot** möchte ich vorhandene Flugtelemetrie (CSV, ArduPilot-Log, SRT-Unt
 - [ ] Import von DJI-SRT (falls vorhanden) und ArduPilot-DataFlash-Log; Zeitsynchronisation über Startzeit/Offset.
 - [ ] Telemetrie ist optional; die Pipeline funktioniert ohne.
 
-### US-017: Tello-Adapter (Aufnahme per Python)
+### US-017 / KAN-32: Tello-Adapter (Aufnahme per Python)
 
-`Story` · **Could** · 3 SP · M3 Drohnen-Erfassung · Labels: capture, hardware · Abhängig von: US-013
+`Story` · **Could** · 3 SP · M3 Drohnen-Erfassung · Labels: capture, hardware · Abhängig von: US-013 / KAN-28
 
 Als **Pilot** möchte ich mit einer Tello per Laptop ein Video aufzeichnen, damit ich günstig mit einer programmierbaren Drohne testen kann.
 
@@ -193,11 +193,11 @@ Als **Pilot** möchte ich mit einer Tello per Laptop ein Video aufzeichnen, dami
 - [ ] Tests mit Mock-Stream (keine echte Drohne in der CI).
 
 
-## EP-03 – Frame-Aufbereitung & Qualitätsprüfung
+## EP-03 / KAN-6 – Frame-Aufbereitung & Qualitätsprüfung
 
-### US-018: Frame-Extraktion mit Schärfe- und Duplikatfilter
+### US-018 / KAN-33: Frame-Extraktion mit Schärfe- und Duplikatfilter
 
-`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: ingest, claude-code · Abhängig von: US-013
+`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: ingest, claude-code · Abhängig von: US-013 / KAN-28
 
 Als **Entwickler (PO + Claude Code)** möchte ich aus Videos automatisch scharfe, nicht redundante Keyframes, damit SfM schneller und robuster läuft.
 
@@ -207,9 +207,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich aus Videos automatisch scharfe
 - [ ] Duplikatfilter über Bildähnlichkeit/optischen Fluss; Zielabstand konfigurierbar (z. B. 2–4 Keyframes/s).
 - [ ] `frames.parquet` enthält je Frame Zeitstempel, Schärfe, Auswahlgrund.
 
-### US-019: Qualitätsreport mit Handlungsempfehlungen
+### US-019 / KAN-34: Qualitätsreport mit Handlungsempfehlungen
 
-`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: ingest, viewer · Abhängig von: US-018
+`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: ingest, viewer · Abhängig von: US-018 / KAN-33
 
 Als **Pilot** möchte ich nach dem Upload erfahren, ob meine Aufnahme gut genug ist, damit ich bei Bedarf sofort nachfliegen kann.
 
@@ -219,9 +219,9 @@ Als **Pilot** möchte ich nach dem Upload erfahren, ob meine Aufnahme gut genug 
 - [ ] Bei ungenügender Qualität: Exit 20 und ≥ 1 konkreter Hinweis (z. B. „Licht einschalten“, „langsamer fliegen“) (Q-9).
 - [ ] Report im Viewer verständlich dargestellt (Ampel).
 
-### US-020: Belichtungs- und Weißabgleichsnormalisierung
+### US-020 / KAN-35: Belichtungs- und Weißabgleichsnormalisierung
 
-`Story` · **Could** · 3 SP · M4 Präsentationsreife · Labels: ingest · Abhängig von: US-018
+`Story` · **Could** · 3 SP · M4 Präsentationsreife · Labels: ingest · Abhängig von: US-018 / KAN-33
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich gleichmäßige Farben in der Begehung, damit die Präsentation professionell wirkt.
 
@@ -231,11 +231,11 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich gleichmäßige Farben in
 - [ ] Kein negativer Einfluss auf die Registrierungsquote (Benchmark).
 
 
-## EP-04 – Rekonstruktion: Kameraposen, Maßstab, Zusammenführung
+## EP-04 / KAN-7 – Rekonstruktion: Kameraposen, Maßstab, Zusammenführung
 
-### US-021: Kameraposen mit COLMAP (Stufe `sfm`)
+### US-021 / KAN-36: Kameraposen mit COLMAP (Stufe `sfm`)
 
-`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: sfm, claude-code · Abhängig von: US-018, US-003
+`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: sfm, claude-code · Abhängig von: US-018 / KAN-33, US-003 / KAN-18
 
 Als **Entwickler (PO + Claude Code)** möchte ich aus Keyframes Kameraposen und eine dünne Punktwolke, damit Splat-Training und Suche darauf aufbauen können.
 
@@ -245,9 +245,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich aus Keyframes Kameraposen und 
 - [ ] Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen.
 - [ ] Läuft im Profil `low_vram_6gb` (Bildkante begrenzt).
 
-### US-022: AprilTag-Maßstab und Schwerkraftausrichtung
+### US-022 / KAN-37: AprilTag-Maßstab und Schwerkraftausrichtung
 
-`Story` · **Must** · 5 SP · M3 Drohnen-Erfassung · Labels: sfm · Abhängig von: US-021
+`Story` · **Must** · 5 SP · M3 Drohnen-Erfassung · Labels: sfm · Abhängig von: US-021 / KAN-36
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich dass das Modell in echten Metern vorliegt und gerade steht, damit Maße und Grundriss stimmen.
 
@@ -257,9 +257,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich dass das Modell in echte
 - [ ] Maßstabsfehler ≤ 3 % bei 2 Tags im Raum (Q-4), Boden horizontal ausgerichtet.
 - [ ] Druckvorlage (PDF) für Tags im Repo.
 
-### US-023: Mehrere Flüge zu einem Modell zusammenführen
+### US-023 / KAN-38: Mehrere Flüge zu einem Modell zusammenführen
 
-`Story` · **Must** · 8 SP · M3 Drohnen-Erfassung · Labels: sfm · Abhängig von: US-021, US-022
+`Story` · **Must** · 8 SP · M3 Drohnen-Erfassung · Labels: sfm · Abhängig von: US-021 / KAN-36, US-022 / KAN-37
 
 Als **Pilot** möchte ich dass mehrere Akkuflüge automatisch zu einem Gebäude zusammengesetzt werden, damit auch größere Wohnungen erfasst werden können.
 
@@ -269,9 +269,9 @@ Als **Pilot** möchte ich dass mehrere Akkuflüge automatisch zu einem Gebäude 
 - [ ] Nicht verbindbare Flüge werden gemeldet mit Hinweis „Brückenflug durch Tür X“.
 - [ ] Test mit 3 Flügen einer Referenzwohnung.
 
-### US-024: Alternative Feature-Matcher für texturarme Räume
+### US-024 / KAN-39: Alternative Feature-Matcher für texturarme Räume
 
-`Story` · **Should** · 5 SP · M3 Drohnen-Erfassung · Labels: sfm, compliance · Abhängig von: US-021, US-012
+`Story` · **Should** · 5 SP · M3 Drohnen-Erfassung · Labels: sfm, compliance · Abhängig von: US-021 / KAN-36, US-012 / KAN-27
 
 Als **Entwickler (PO + Claude Code)** möchte ich einen lizenzsauberen Fallback-Matcher (z. B. ALIKED + LightGlue), damit weiße Wände und schwierige Räume häufiger gelingen.
 
@@ -280,9 +280,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen lizenzsauberen Fallback-
 - [ ] Lizenzprüfung durch `license-auditor` dokumentiert (keine SuperPoint-Gewichte).
 - [ ] Automatischer Fallback, wenn Registrierungsquote < 80 %; Vergleich im Benchmark.
 
-### US-025: Raumaufteilung (Chunking) für große Gebäude
+### US-025 / KAN-40: Raumaufteilung (Chunking) für große Gebäude
 
-`Story` · **Should** · 8 SP · M3 Drohnen-Erfassung · Labels: recon, sfm · Abhängig von: US-026, US-023
+`Story` · **Should** · 8 SP · M3 Drohnen-Erfassung · Labels: recon, sfm · Abhängig von: US-026 / KAN-41, US-023 / KAN-38
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich auch Häuser mit vielen Räumen auf 6 GB verarbeiten, damit die Hardwaregrenze kein Ausschlusskriterium ist.
 
@@ -292,11 +292,11 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich auch Häuser mit vielen 
 - [ ] Zusammengesetzte Szene im Viewer ohne sichtbare Nähte an Abschnittsgrenzen (subjektiver Test + Screenshot).
 
 
-## EP-05 – Virtuelle Begehung (Splat & Viewer)
+## EP-05 / KAN-8 – Virtuelle Begehung (Splat & Viewer)
 
-### US-026: Gaussian-Splatting-Training im 6-GB-Profil (Stufe `recon.splat`)
+### US-026 / KAN-41: Gaussian-Splatting-Training im 6-GB-Profil (Stufe `recon.splat`)
 
-`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: recon, claude-code · Abhängig von: US-021, US-005
+`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: recon, claude-code · Abhängig von: US-021 / KAN-36, US-005 / KAN-20
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine fotorealistische 3D-Szene, damit Interessenten die Räume virtuell begehen können.
 
@@ -307,9 +307,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine
 - [ ] OOM → automatische Wiederholung mit kleinerem Profil (einmal).
 - [ ] Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
 
-### US-027: Szenenkomprimierung für Smartphone-Wiedergabe
+### US-027 / KAN-42: Szenenkomprimierung für Smartphone-Wiedergabe
 
-`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: recon, viewer · Abhängig von: US-026
+`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: recon, viewer · Abhängig von: US-026 / KAN-41
 
 Als **Betrachtende (Interessent)** möchte ich dass die Begehung auf meinem Android-Handy flüssig läuft, damit ich sie ohne leistungsstarken Rechner ansehen kann.
 
@@ -318,9 +318,9 @@ Als **Betrachtende (Interessent)** möchte ich dass die Begehung auf meinem Andr
 - [ ] Export als komprimierte Szene (z. B. SPZ) mit Begrenzung auf ≤ 1,5 M Gaussians (Pruning).
 - [ ] ≥ 30 fps auf einem Mittelklasse-Android-Gerät (Q-7), gemessen und dokumentiert.
 
-### US-028: PWA-Viewer: Begehung mit Touch-Navigation
+### US-028 / KAN-43: PWA-Viewer: Begehung mit Touch-Navigation
 
-`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: viewer, claude-code · Abhängig von: US-027
+`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: viewer, claude-code · Abhängig von: US-027 / KAN-42
 
 Als **Betrachtende (Interessent)** möchte ich die Szene im Browser mit Touch-Gesten erkunden, damit ich mich intuitiv durch die Räume bewegen kann.
 
@@ -330,9 +330,9 @@ Als **Betrachtende (Interessent)** möchte ich die Szene im Browser mit Touch-Ge
 - [ ] Touch: Wischen = Blick, Zwei-Finger = Bewegung; Desktop: WASD + Maus.
 - [ ] Ladeanzeige und Fallback-Meldung bei fehlender WebGL2-Unterstützung.
 
-### US-029: Raumliste und Sprungpunkte
+### US-029 / KAN-44: Raumliste und Sprungpunkte
 
-`Story` · **Should** · 3 SP · M4 Präsentationsreife · Labels: viewer · Abhängig von: US-028
+`Story` · **Should** · 3 SP · M4 Präsentationsreife · Labels: viewer · Abhängig von: US-028 / KAN-43
 
 Als **Betrachtende (Interessent)** möchte ich direkt zu „Küche“ oder „Bad“ springen, damit ich mich schnell orientiere.
 
@@ -341,9 +341,9 @@ Als **Betrachtende (Interessent)** möchte ich direkt zu „Küche“ oder „Ba
 - [ ] Präsentierende können Sprungpunkte (Position + Blickrichtung + Name) setzen.
 - [ ] Raumliste im Viewer; Antippen fliegt animiert zum Punkt.
 
-### US-030: Mesh-Erzeugung (optional) für Messungen
+### US-030 / KAN-45: Mesh-Erzeugung (optional) für Messungen
 
-`Story` · **Could** · 5 SP · M4 Präsentationsreife · Labels: recon · Abhängig von: US-026, US-022
+`Story` · **Could** · 5 SP · M4 Präsentationsreife · Labels: recon · Abhängig von: US-026 / KAN-41, US-022 / KAN-37
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich ein grobes Mesh der Räume, damit Maße und Grundriss abgeleitet werden können.
 
@@ -353,11 +353,11 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich ein grobes Mesh der Räu
 - [ ] Export als glTF 2.0 (GLB); Laufzeit und VRAM dokumentiert.
 
 
-## EP-06 – Gegenstandssuche
+## EP-06 / KAN-9 – Gegenstandssuche
 
-### US-031: Suchindex: Detektionen und Bild-Embeddings je Keyframe
+### US-031 / KAN-46: Suchindex: Detektionen und Bild-Embeddings je Keyframe
 
-`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search, claude-code · Abhängig von: US-021, US-009
+`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search, claude-code · Abhängig von: US-021 / KAN-36, US-009 / KAN-24
 
 Als **Suchende (Privatnutzer)** möchte ich dass alle Aufnahmen nach dem Scan durchsuchbar sind, damit ich später schnell Gegenstände finden kann.
 
@@ -367,9 +367,9 @@ Als **Suchende (Privatnutzer)** möchte ich dass alle Aufnahmen nach dem Scan du
 - [ ] Indexierung läuft im VRAM-Budget (Batchgröße aus Profil) und ist Teil der Pipeline.
 - [ ] Index-Größe und Laufzeit im Manifest.
 
-### US-032: Textsuche mit Open-Vocabulary-Detektion
+### US-032 / KAN-47: Textsuche mit Open-Vocabulary-Detektion
 
-`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-031
+`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-031 / KAN-46
 
 Als **Suchende (Privatnutzer)** möchte ich per Freitext („Schlüsselbund“, „rote Brille“) suchen, damit ich nicht in Hunderten Bildern selbst suchen muss.
 
@@ -379,9 +379,9 @@ Als **Suchende (Privatnutzer)** möchte ich per Freitext („Schlüsselbund“, 
 - [ ] Antwort < 3 s nach Indexierung (Q-6) auf dem Zielrechner.
 - [ ] Deutsche und englische Suchbegriffe (Übersetzungstabelle bzw. mehrsprachiges Modell).
 
-### US-033: 3D-Lokalisierung der Treffer (Triangulation)
+### US-033 / KAN-48: 3D-Lokalisierung der Treffer (Triangulation)
 
-`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-032, US-026
+`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-032 / KAN-47, US-026 / KAN-41
 
 Als **Suchende (Privatnutzer)** möchte ich sehen, WO im Gebäude der Gegenstand liegt, damit ich direkt hingehen kann.
 
@@ -391,9 +391,9 @@ Als **Suchende (Privatnutzer)** möchte ich sehen, WO im Gebäude der Gegenstand
 - [ ] Ergebnis: 3D-Position, Raum (falls bekannt), Konfidenz, 2–4 Belegbilder mit Box.
 - [ ] Benchmark: Top-3-Trefferquote ≥ 70 % auf Testset mit 20 platzierten Gegenständen (Q-5).
 
-### US-034: Suchergebnis im Viewer anzeigen
+### US-034 / KAN-49: Suchergebnis im Viewer anzeigen
 
-`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: viewer, search · Abhängig von: US-033, US-028
+`Story` · **Must** · 5 SP · M2 Gegenstandssuche · Labels: viewer, search · Abhängig von: US-033 / KAN-48, US-028 / KAN-43
 
 Als **Suchende (Privatnutzer)** möchte ich Treffer als Marker in der 3D-Szene und als Bildliste, damit ich das Ergebnis schnell überprüfen kann.
 
@@ -403,9 +403,9 @@ Als **Suchende (Privatnutzer)** möchte ich Treffer als Marker in der 3D-Szene u
 - [ ] Antippen fliegt zum 3D-Marker; Belegbild ist einblendbar.
 - [ ] „Kein Treffer“ mit Tipp (andere Formulierung, Raum nachscannen).
 
-### US-035: Präzise Segmentierung der Treffer (optional)
+### US-035 / KAN-50: Präzise Segmentierung der Treffer (optional)
 
-`Story` · **Could** · 3 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-034
+`Story` · **Could** · 3 SP · M2 Gegenstandssuche · Labels: search · Abhängig von: US-034 / KAN-49
 
 Als **Suchende (Privatnutzer)** möchte ich den gefundenen Gegenstand hervorgehoben sehen, damit ich ihn auf dem Bild sofort erkenne.
 
@@ -414,9 +414,9 @@ Als **Suchende (Privatnutzer)** möchte ich den gefundenen Gegenstand hervorgeho
 - [ ] SAM 2 (Apache-2.0) erzeugt Masken für Top-Treffer; VRAM im Budget.
 - [ ] Maske im Belegbild und als Hervorhebung im Viewer.
 
-### US-036: Vergleich zweier Scans (Was hat sich verändert?)
+### US-036 / KAN-51: Vergleich zweier Scans (Was hat sich verändert?)
 
-`Story` · **Could** · 8 SP · M4 Präsentationsreife · Labels: search, sfm · Abhängig von: US-033, US-022
+`Story` · **Could** · 8 SP · M4 Präsentationsreife · Labels: search, sfm · Abhängig von: US-033 / KAN-48, US-022 / KAN-37
 
 Als **Suchende (Privatnutzer)** möchte ich einen neuen Scan mit einem älteren vergleichen, damit ich sehe, wo Gegenstände hinzugekommen oder verschwunden sind.
 
@@ -426,11 +426,11 @@ Als **Suchende (Privatnutzer)** möchte ich einen neuen Scan mit einem älteren 
 - [ ] Liste der Änderungsregionen mit Vorher/Nachher-Bildern.
 
 
-## EP-07 – Präsentation & Export für Verkaufsgespräche
+## EP-07 / KAN-10 – Präsentation & Export für Verkaufsgespräche
 
-### US-042: Teilbares Offline-Viewer-Bundle
+### US-042 / KAN-57: Teilbares Offline-Viewer-Bundle
 
-`Story` · **Must** · 5 SP · M4 Präsentationsreife · Labels: export, viewer · Abhängig von: US-027, US-046
+`Story` · **Must** · 5 SP · M4 Präsentationsreife · Labels: export, viewer · Abhängig von: US-027 / KAN-42, US-046 / KAN-61
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Begehung als Paket/Link an Interessenten weitergeben, damit sie ohne meinen Laptop angesehen werden kann.
 
@@ -440,9 +440,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Begehung als Paket/
 - [ ] Größe ≤ 150 MB für 60 m²; Ladezeit auf 4G dokumentiert.
 - [ ] Anonymisierung ist vor Export standardmäßig aktiv (US-046).
 
-### US-043: Präsentationsmodus mit geführter Tour
+### US-043 / KAN-58: Präsentationsmodus mit geführter Tour
 
-`Story` · **Should** · 5 SP · M4 Präsentationsreife · Labels: viewer · Abhängig von: US-029
+`Story` · **Should** · 5 SP · M4 Präsentationsreife · Labels: viewer · Abhängig von: US-029 / KAN-44
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Tour mit Stationen und Texten festlegen, damit ich im Verkaufsgespräch strukturiert führen kann.
 
@@ -451,9 +451,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Tour mit Stationen 
 - [ ] Stationen aus Sprungpunkten (US-029) mit Titel, Kurztext, Reihenfolge.
 - [ ] Abspielmodus mit Weiter/Zurück; funktioniert auch im Export-Bundle.
 
-### US-044: Grundriss-Skizze mit ungefähren Flächen
+### US-044 / KAN-59: Grundriss-Skizze mit ungefähren Flächen
 
-`Story` · **Could** · 8 SP · M4 Präsentationsreife · Labels: recon, export · Abhängig von: US-030, US-022
+`Story` · **Could** · 8 SP · M4 Präsentationsreife · Labels: recon, export · Abhängig von: US-030 / KAN-45, US-022 / KAN-37
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich einen groben 2D-Grundriss mit Flächenangaben, damit Interessenten die Raumaufteilung verstehen.
 
@@ -462,9 +462,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich einen groben 2D-Grundris
 - [ ] Horizontalschnitt aus Mesh/Punktwolke → Polygon je Raum, SVG-Export.
 - [ ] Flächenabweichung ≤ 10 % gegenüber Referenzmessung; deutlicher Hinweis „nicht maßstabsverbindlich“.
 
-### US-045: Standardformate exportieren (glTF, PLY/SPZ, E57)
+### US-045 / KAN-60: Standardformate exportieren (glTF, PLY/SPZ, E57)
 
-`Story` · **Should** · 5 SP · M4 Präsentationsreife · Labels: export · Abhängig von: US-026
+`Story` · **Should** · 5 SP · M4 Präsentationsreife · Labels: export · Abhängig von: US-026 / KAN-41
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich Ergebnisse in gängigen Formaten exportieren, damit Partner sie in eigenen Werkzeugen weiterverwenden.
 
@@ -475,11 +475,11 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich Ergebnisse in gängigen 
 - [ ] Validierung mit glTF-Validator bzw. Referenz-Reader im Test.
 
 
-## EP-08 – Datenschutz & Datenhaltung
+## EP-08 / KAN-11 – Datenschutz & Datenhaltung
 
-### US-046: Automatische Anonymisierung (Gesichter, Bildschirme, Dokumente)
+### US-046 / KAN-61: Automatische Anonymisierung (Gesichter, Bildschirme, Dokumente)
 
-`Story` · **Must** · 8 SP · M4 Präsentationsreife · Labels: privacy · Abhängig von: US-018, US-009
+`Story` · **Must** · 8 SP · M4 Präsentationsreife · Labels: privacy · Abhängig von: US-018 / KAN-33, US-009 / KAN-24
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich dass Fotos von Personen, Bildschirme und Dokumente unkenntlich gemacht werden, damit ich Begehungen DSGVO-konform teilen kann.
 
@@ -489,9 +489,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich dass Fotos von Personen,
 - [ ] Nutzer kann Bereiche manuell nachmarkieren; Modelle lizenzgeprüft.
 - [ ] Bericht: Anzahl geschwärzter Regionen; Stichprobentest auf Referenzdaten.
 
-### US-047: Einwilligung und Metadaten pro Scan
+### US-047 / KAN-62: Einwilligung und Metadaten pro Scan
 
-`Story` · **Should** · 2 SP · M4 Präsentationsreife · Labels: privacy · Abhängig von: US-040
+`Story` · **Should** · 2 SP · M4 Präsentationsreife · Labels: privacy · Abhängig von: US-040 / KAN-55
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich dokumentieren, dass der Eigentümer der Aufnahme zugestimmt hat, damit ich rechtlich abgesichert bin.
 
@@ -500,9 +500,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich dokumentieren, dass der 
 - [ ] Feld für Einwilligung (wer, wann, Zweck) in `scan.yaml`; Export nur mit gesetzter Einwilligung (abschaltbar für private Nutzung).
 - [ ] Exporte tragen Metadaten: Aufnahmedatum, Hinweis „nicht maßstabsverbindlich“.
 
-### US-048: Vollständiges Löschen eines Scans
+### US-048 / KAN-63: Vollständiges Löschen eines Scans
 
-`Story` · **Must** · 2 SP · M4 Präsentationsreife · Labels: privacy, server · Abhängig von: US-040
+`Story` · **Must** · 2 SP · M4 Präsentationsreife · Labels: privacy, server · Abhängig von: US-040 / KAN-55
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich einen Scan inklusive aller Ableitungen endgültig löschen, damit ich Löschpflichten erfüllen kann.
 
@@ -511,9 +511,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich einen Scan inklusive all
 - [ ] Löscht Videos, Frames, Modelle, Index, Cache und Job-Historie; Löschprotokoll ohne Inhalte.
 - [ ] Test stellt sicher, dass keine Dateien des Scans verbleiben.
 
-### US-049: Speicherbereinigung von Zwischenständen
+### US-049 / KAN-64: Speicherbereinigung von Zwischenständen
 
-`Story` · **Could** · 2 SP · M3 Drohnen-Erfassung · Labels: server · Abhängig von: US-040
+`Story` · **Could** · 2 SP · M3 Drohnen-Erfassung · Labels: server · Abhängig von: US-040 / KAN-55
 
 Als **Pilot** möchte ich Zwischenergebnisse automatisch aufräumen, damit mein Laptop-Speicher nicht vollläuft.
 
@@ -523,11 +523,11 @@ Als **Pilot** möchte ich Zwischenergebnisse automatisch aufräumen, damit mein 
 - [ ] Anzeige des freigegebenen Speichers.
 
 
-## EP-09 – Web-App, Jobs & Bedienung
+## EP-09 / KAN-12 – Web-App, Jobs & Bedienung
 
-### US-037: Lokaler API-Server mit Job-Queue
+### US-037 / KAN-52: Lokaler API-Server mit Job-Queue
 
-`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: server, claude-code · Abhängig von: US-006
+`Story` · **Must** · 8 SP · M1 MVP „Video → Begehung“ · Labels: server, claude-code · Abhängig von: US-006 / KAN-21
 
 Als **Entwickler (PO + Claude Code)** möchte ich einen Server, der Scans verwaltet und Pipeline-Jobs ausführt, damit die Bedienung per Browser möglich wird.
 
@@ -537,9 +537,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen Server, der Scans verwal
 - [ ] Job-Queue (SQLite) mit GPU-Concurrency = 1; Abbruch und Wiederaufnahme von Jobs.
 - [ ] Fortschritt per Server-Sent Events (Stufe, Prozent, Warnungen, Hinweise).
 
-### US-038: Ein-Klick-Pipeline im Browser
+### US-038 / KAN-53: Ein-Klick-Pipeline im Browser
 
-`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: viewer, server · Abhängig von: US-037, US-026, US-028
+`Story` · **Must** · 5 SP · M1 MVP „Video → Begehung“ · Labels: viewer, server · Abhängig von: US-037 / KAN-52, US-026 / KAN-41, US-028 / KAN-43
 
 Als **Pilot** möchte ich nach dem Upload nur auf „Verarbeiten“ tippen, damit ich ohne Technikwissen zur Begehung komme.
 
@@ -549,9 +549,9 @@ Als **Pilot** möchte ich nach dem Upload nur auf „Verarbeiten“ tippen, dami
 - [ ] Bei Exit 20/30 verständliche Meldung mit nächstem Schritt.
 - [ ] Am Ende Button „Begehung öffnen“.
 
-### US-039: PWA installierbar im LAN (HTTPS)
+### US-039 / KAN-54: PWA installierbar im LAN (HTTPS)
 
-`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: viewer, infra · Abhängig von: US-037
+`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: viewer, infra · Abhängig von: US-037 / KAN-52
 
 Als **Pilot** möchte ich die App auf meinem Android-Startbildschirm, damit ich sie wie eine App nutzen kann.
 
@@ -560,9 +560,9 @@ Als **Pilot** möchte ich die App auf meinem Android-Startbildschirm, damit ich 
 - [ ] Anleitung + Skript für lokales Zertifikat (z. B. mkcert); Manifest + Service Worker.
 - [ ] QR-Code im Terminal/UI zum Öffnen der Adresse auf dem Handy.
 
-### US-040: Scan-Übersicht und Verwaltung
+### US-040 / KAN-55: Scan-Übersicht und Verwaltung
 
-`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: viewer, server · Abhängig von: US-037
+`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: viewer, server · Abhängig von: US-037 / KAN-52
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich alle Scans mit Status, Datum und Vorschaubild sehen, damit ich Objekte und Kunden auseinanderhalte.
 
@@ -571,9 +571,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich alle Scans mit Status, D
 - [ ] Liste mit Name, Datum, Status, Speicherbedarf; Umbenennen, Notizen.
 - [ ] Löschen (siehe US-048) mit Bestätigung.
 
-### US-041: Fehlercode-Katalog und verständliche Meldungen
+### US-041 / KAN-56: Fehlercode-Katalog und verständliche Meldungen
 
-`Story` · **Should** · 2 SP · M1 MVP „Video → Begehung“ · Labels: server, viewer · Abhängig von: US-006
+`Story` · **Should** · 2 SP · M1 MVP „Video → Begehung“ · Labels: server, viewer · Abhängig von: US-006 / KAN-21
 
 Als **Pilot** möchte ich bei Problemen eine klare Ursache und Lösung, damit ich nicht hängen bleibe.
 
@@ -583,11 +583,11 @@ Als **Pilot** möchte ich bei Problemen eine klare Ursache und Lösung, damit ic
 - [ ] Jede Stufe meldet Fehler nur über Codes aus dem Katalog (Test prüft Vollständigkeit).
 
 
-## EP-10 – Flugunterstützung & Autonomie
+## EP-10 / KAN-13 – Flugunterstützung & Autonomie
 
-### US-053: SITL-Umgebung: ArduPilot + Gazebo mit Innenraumwelt
+### US-053 / KAN-68: SITL-Umgebung: ArduPilot + Gazebo mit Innenraumwelt
 
-`Task` · **Should** · 8 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-003
+`Task` · **Should** · 8 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-003 / KAN-18
 
 Als **Entwickler (PO + Claude Code)** möchte ich eine simulierte Wohnung mit simulierter Drohne, damit Flugcode ohne Risiko entwickelt und in der CI getestet werden kann.
 
@@ -597,9 +597,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich eine simulierte Wohnung mit si
 - [ ] pytest-Marker `sitl`; Beispieltest: Start, 1 m Schweben, Landung.
 - [ ] Alle Endpunkte 127.0.0.1; Hook blockiert Nicht-SITL-Ziele.
 
-### US-054: Missionsplanung: Rasterflug aus Raumumriss
+### US-054 / KAN-69: Missionsplanung: Rasterflug aus Raumumriss
 
-`Story` · **Should** · 8 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-053
+`Story` · **Should** · 8 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-053 / KAN-68
 
 Als **Pilot** möchte ich aus einem grob gezeichneten Raumumriss eine Flugbahn erzeugen, damit die Drohne den Raum mit ausreichender Überlappung abfliegt.
 
@@ -609,9 +609,9 @@ Als **Pilot** möchte ich aus einem grob gezeichneten Raumumriss eine Flugbahn e
 - [ ] Simulierte Abdeckung ≥ 90 % der Wandfläche (SITL/Renderer).
 - [ ] Mission als MAVLink-Missionsdatei exportierbar (QGroundControl-kompatibel).
 
-### US-055: Sicherheitsfunktionen: Geofence, Failsafes, Not-Aus
+### US-055 / KAN-70: Sicherheitsfunktionen: Geofence, Failsafes, Not-Aus
 
-`Story` · **Must** · 5 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-053
+`Story` · **Must** · 5 SP · M5 Assistierter Flug · Labels: flight · Abhängig von: US-053 / KAN-68
 
 Als **Pilot** möchte ich dass die Drohne bei Problemen sicher reagiert, damit weder Drohne noch Einrichtung beschädigt werden.
 
@@ -621,9 +621,9 @@ Als **Pilot** möchte ich dass die Drohne bei Problemen sicher reagiert, damit w
 - [ ] Jeder Failsafe in SITL getestet; Subagent `flight-safety` ohne BLOCKER.
 - [ ] Not-Aus-Schalter auf Fernsteuerung dokumentiert und getestet (Hardware, vom Menschen).
 
-### US-056: Assistierter Flug auf Hardware (manuell freigegeben)
+### US-056 / KAN-71: Assistierter Flug auf Hardware (manuell freigegeben)
 
-`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, hardware · Abhängig von: US-052, US-054, US-055
+`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, hardware · Abhängig von: US-052 / KAN-67, US-054 / KAN-69, US-055 / KAN-70
 
 Als **Pilot** möchte ich eine geplante Mission im echten Raum fliegen lassen, die ich jederzeit übernehmen kann, damit Aufnahmen gleichmäßiger und reproduzierbarer werden.
 
@@ -633,9 +633,9 @@ Als **Pilot** möchte ich eine geplante Mission im echten Raum fliegen lassen, d
 - [ ] Mission in einem Raum vollständig geflogen, Video automatisch dem Scan zugeordnet.
 - [ ] Pilot kann jederzeit per Moduswechsel übernehmen; Flugprotokoll gespeichert.
 
-### US-057: Live-Vorschau der Abdeckung während des Flugs
+### US-057 / KAN-72: Live-Vorschau der Abdeckung während des Flugs
 
-`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, viewer · Abhängig von: US-053
+`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, viewer · Abhängig von: US-053 / KAN-68
 
 Als **Pilot** möchte ich noch während des Flugs sehen, welche Bereiche fehlen, damit ich nicht erst nach der Auswertung nachfliegen muss.
 
@@ -644,9 +644,9 @@ Als **Pilot** möchte ich noch während des Flugs sehen, welche Bereiche fehlen,
 - [ ] Grober Live-Abdeckungsplan auf dem Smartphone (aus Stream oder Telemetrie), Latenz ≤ 2 s.
 - [ ] Funktioniert mit SITL und mindestens einer Hardware-Konfiguration.
 
-### US-058: Autonome Raumerkundung (Exploration) – Forschungsstory
+### US-058 / KAN-73: Autonome Raumerkundung (Exploration) – Forschungsstory
 
-`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, spike · Abhängig von: US-054, US-055
+`Story` · **Could** · 8 SP · M5 Assistierter Flug · Labels: flight, spike · Abhängig von: US-054 / KAN-69, US-055 / KAN-70
 
 Als **Pilot** möchte ich dass die Drohne unbekannte Räume selbstständig erkundet, damit kein Umriss vorgezeichnet werden muss.
 
@@ -656,11 +656,11 @@ Als **Pilot** möchte ich dass die Drohne unbekannte Räume selbstständig erkun
 - [ ] Bewertung Machbarkeit auf Billig-Hardware als Bericht (Go/No-Go).
 
 
-## EP-11 – Qualitätssicherung & Compliance
+## EP-11 / KAN-14 – Qualitätssicherung & Compliance
 
-### US-008: Lizenz-Gate in der CI
+### US-008 / KAN-23: Lizenz-Gate in der CI
 
-`Story` · **Must** · 3 SP · M0 Fundament & Spikes · Labels: compliance, claude-code · Abhängig von: US-002
+`Story` · **Must** · 3 SP · M0 Fundament & Spikes · Labels: compliance, claude-code · Abhängig von: US-002 / KAN-17
 
 Als **Entwickler (PO + Claude Code)** möchte ich dass nicht erlaubte Lizenzen automatisch erkannt werden, damit das Produkt kommerziell nutzbar bleibt.
 
@@ -670,9 +670,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich dass nicht erlaubte Lizenzen a
 - [ ] CI prüft Python- und npm-Abhängigkeiten sowie `models.lock`; eine NC-Lizenz lässt den Build fehlschlagen (Q-8).
 - [ ] Copyleft-Pakete sind nur in Container-Images ohne Import aus `src/` erlaubt; Verstoß wird gemeldet.
 
-### US-009: Modell-Registry `models.lock` und `drone-scan models pull`
+### US-009 / KAN-24: Modell-Registry `models.lock` und `drone-scan models pull`
 
-`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: compliance · Abhängig von: US-008
+`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: compliance · Abhängig von: US-008 / KAN-23
 
 Als **Entwickler (PO + Claude Code)** möchte ich Modellgewichte versioniert, geprüft und einmalig herunterladen, damit die Laufzeit offline bleibt und Lizenzen nachvollziehbar sind.
 
@@ -682,9 +682,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich Modellgewichte versioniert, ge
 - [ ] `drone-scan models pull` lädt nur gelistete Modelle und prüft die Hashes; Abweichung führt zu Abbruch.
 - [ ] Zur Laufzeit erfolgt kein Netzwerkzugriff (Test mit blockiertem Netz).
 
-### US-010: SBOM pro Release
+### US-010 / KAN-25: SBOM pro Release
 
-`Story` · **Should** · 2 SP · M4 Präsentationsreife · Labels: compliance · Abhängig von: US-008, US-009
+`Story` · **Should** · 2 SP · M4 Präsentationsreife · Labels: compliance · Abhängig von: US-008 / KAN-23, US-009 / KAN-24
 
 Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Software-Stückliste zu jedem Release, damit ich Kunden und Partnern die Lizenzkonformität belegen kann.
 
@@ -693,9 +693,9 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Software-Stücklist
 - [ ] Release-Job erzeugt SBOM im Format SPDX 2.3 (JSON) und CycloneDX.
 - [ ] SBOM enthält auch Modellgewichte aus `models.lock` und Container-Basisimages.
 
-### US-011: Golden-Data-Smoketest und GPU-Testlauf mit VRAM-Grenze
+### US-011 / KAN-26: Golden-Data-Smoketest und GPU-Testlauf mit VRAM-Grenze
 
-`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: infra, claude-code · Abhängig von: US-006, US-021
+`Story` · **Must** · 3 SP · M1 MVP „Video → Begehung“ · Labels: infra, claude-code · Abhängig von: US-006 / KAN-21, US-021 / KAN-36
 
 Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Test auf einem Kurzclip, damit Regressionen in der Pipeline sofort sichtbar werden.
 
@@ -705,9 +705,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Tes
 - [ ] `make test-gpu` läuft mit 5,5-GB-Grenze; Überschreitung lässt den Test fehlschlagen.
 - [ ] Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert.
 
-### US-012: Benchmark-Suite auf Referenzräumen
+### US-012 / KAN-27: Benchmark-Suite auf Referenzräumen
 
-`Story` · **Should** · 5 SP · M2 Gegenstandssuche · Labels: infra · Abhängig von: US-011
+`Story` · **Should** · 5 SP · M2 Gegenstandssuche · Labels: infra · Abhängig von: US-011 / KAN-26
 
 Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-7) reproduzierbar messen, damit Fortschritt und Regressionen objektiv bewertbar sind.
 
@@ -717,11 +717,11 @@ Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-
 - [ ] Ergebnisse als CSV/Markdown-Bericht mit Vergleich zum letzten Lauf.
 
 
-## EP-12 – Hardware-Evaluierung & Erfassungsleitfaden
+## EP-12 / KAN-15 – Hardware-Evaluierung & Erfassungsleitfaden
 
-### US-050: Drohnen-Evaluierung: Videoqualität im Innenraum
+### US-050 / KAN-65: Drohnen-Evaluierung: Videoqualität im Innenraum
 
-`Task` · **Must** · 5 SP · M3 Drohnen-Erfassung · Labels: hardware, spike · Abhängig von: US-026, US-012
+`Task` · **Must** · 5 SP · M3 Drohnen-Erfassung · Labels: hardware, spike · Abhängig von: US-026 / KAN-41, US-012 / KAN-27
 
 Als **Entwickler (PO + Claude Code)** möchte ich 2–3 Drohnen/Kameras im selben Referenzraum vergleichen, damit die Empfehlung für Nutzer auf Messwerten beruht.
 
@@ -731,9 +731,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich 2–3 Drohnen/Kameras im selbe
 - [ ] Je Gerät: registrierte Frames, PSNR, Bewegungsunschärfe, Flugzeit, Handhabung – als Bericht.
 - [ ] Kameraprofile (US-014) für die getesteten Geräte angelegt.
 
-### US-051: Erfassungsleitfaden im Viewer (Checkliste vor dem Flug)
+### US-051 / KAN-66: Erfassungsleitfaden im Viewer (Checkliste vor dem Flug)
 
-`Story` · **Should** · 2 SP · M3 Drohnen-Erfassung · Labels: viewer, hardware · Abhängig von: US-050
+`Story` · **Should** · 2 SP · M3 Drohnen-Erfassung · Labels: viewer, hardware · Abhängig von: US-050 / KAN-65
 
 Als **Pilot** möchte ich vor dem Flug eine kurze Checkliste und Flugmuster, damit meine Aufnahmen beim ersten Versuch gut werden.
 
@@ -742,9 +742,9 @@ Als **Pilot** möchte ich vor dem Flug eine kurze Checkliste und Flugmuster, dam
 - [ ] Checkliste: Licht, Türen, Tags, Propellerschutz, Akku; Flugmuster-Grafik (Raum umrunden, Türen doppelt).
 - [ ] Inhalte basieren auf Ergebnissen aus US-004 und US-050.
 
-### US-052: Aufbau offene Flugplattform (ArduPilot-Cinewhoop)
+### US-052 / KAN-67: Aufbau offene Flugplattform (ArduPilot-Cinewhoop)
 
-`Task` · **Should** · 8 SP · M5 Assistierter Flug · Labels: hardware, flight · Abhängig von: US-050
+`Task` · **Should** · 8 SP · M5 Assistierter Flug · Labels: hardware, flight · Abhängig von: US-050 / KAN-65
 
 Als **Entwickler (PO + Claude Code)** möchte ich eine eigene Indoor-Drohne mit ArduPilot, optischem Fluss und Aufnahmekamera, damit assistierter Flug mit offener Firmware möglich wird.
 

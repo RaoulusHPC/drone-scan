@@ -18,6 +18,6 @@ Open-Source-Pipeline: Drohnen- oder Smartphone-Video → 3D-Modell von Innenräu
 
 ## Loslegen mit Claude Code
 
-Siehe [docs/uebergabe-claude-code.md](docs/uebergabe-claude-code.md): `claude` starten → `/mcp` → `/jira-sync` → `/story KAN-…`.
+Siehe [docs/uebergabe-claude-code.md](docs/uebergabe-claude-code.md): `claude` starten → `/mcp` → `/story KAN-22` (Jira-Backlog ist bereits angelegt: KAN-4 … KAN-73).
 
 Backlog ändern: `backlog/backlog.yaml` bearbeiten → `python3 tools/backlog_export.py` (validiert und erzeugt Markdown + Jira-CSV) → `/jira-sync`.
