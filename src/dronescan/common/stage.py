@@ -3,16 +3,16 @@
 ``drone-scan <stage> --scan <dir> [--profile] [--force]`` reads defined inputs,
 writes ``<scan>/<stage>/`` plus ``manifest.json`` and exits with
 0 ok · 10 input missing · 20 quality insufficient · 30 OOM · 1 other error.
-A stage is skipped when its manifest is valid (status ok, same stage version,
-input hashes and parameters).
+A stage is skipped when its manifest is valid: status ok and the same stage
+version, input hashes, parameters and tool versions.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
-import sys
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -31,8 +31,8 @@ from dronescan.common import gpu
 from dronescan.common.config import ProfileError, Settings, describe_validation_error, load_settings
 
 MANIFEST_NAME = "manifest.json"
-MIB = 1024**2
 _HASH_CHUNK = 1024 * 1024
+_MANIFEST_MODE = 0o644  # readable by server/worker containers running as another uid
 
 log = structlog.get_logger(__name__)
 
@@ -55,11 +55,24 @@ _STATUS: dict[ExitCode, Status] = {
     ExitCode.OOM: "oom",
 }
 
-OOM_HINTS = [
-    "Der Grafikspeicher hat nicht gereicht. Abhilfe: Profil 'low_vram_6gb' verwenden, "
-    "andere GPU-Programme schließen oder ein kürzeres Video bzw. weniger Räume pro Scan "
-    "verarbeiten."
-]
+GPU_OOM_HINT = (
+    "Der Grafikspeicher hat nicht gereicht. Abhilfe: Profil 'low_vram_6gb' verwenden, andere "
+    "GPU-Programme schließen oder ein kürzeres Video bzw. weniger Räume pro Scan verarbeiten."
+)
+RAM_OOM_HINT = (
+    "Der Arbeitsspeicher hat nicht gereicht. Abhilfe: andere Programme schließen oder ein "
+    "kürzeres Video bzw. weniger Räume pro Scan verarbeiten."
+)
+ERROR_HINT = (
+    "Unerwarteter Fehler. Abhilfe: mit --force erneut ausführen; tritt er wieder auf, "
+    "Log-Ausgabe und manifest.json an das Entwicklungsteam geben."
+)
+INTERRUPTED = "Abgebrochen (Strg+C bzw. Prozess beendet)."
+INTERRUPTED_HINT = "Abhilfe: Stufe erneut starten; bereits erzeugte Dateien werden neu berechnet."
+INPUT_MISSING_HINT = (
+    "Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen und den Pfad mit "
+    "--scan prüfen."
+)
 
 
 class StageError(Exception):
@@ -127,7 +140,10 @@ class StageContext:
 
 
 class Stage(ABC):
-    """Base class for pipeline stages. Subclasses set ``name`` and ``version``."""
+    """Base class for pipeline stages. Subclasses set ``name`` and ``version``.
+
+    Constructors must be cheap (no heavy imports); work belongs in `run`.
+    """
 
     name: ClassVar[str]
     version: ClassVar[str]
@@ -135,19 +151,23 @@ class Stage(ABC):
 
     @abstractmethod
     def inputs(self, scan_dir: Path) -> list[Path]:
-        """Input files/directories read by this stage (inside ``scan_dir``)."""
+        """Input files/directories read by this stage; must lie inside ``scan_dir``."""
 
     def params(self, settings: Settings) -> dict[str, Any]:
-        """Parameters that influence the output (part of the cache key)."""
+        """Parameters that influence the output (part of the cache key, JSON-serialisable)."""
         return {}
 
     def tool_versions(self) -> dict[str, str]:
-        """Versions of external tools (COLMAP, gsplat, ...) used by the stage."""
+        """Versions of external tools (COLMAP, gsplat, ...); a change invalidates the cache."""
         return {}
 
     @abstractmethod
     def run(self, ctx: StageContext) -> None:
-        """Produce the outputs in ``ctx.out_dir``; raise StageError subclasses on failure."""
+        """Produce all outputs in ``ctx.out_dir``; raise StageError subclasses on failure.
+
+        The framework does not clear ``out_dir`` (stages may keep per-flight
+        subfolders), so a stage must overwrite or remove its own old outputs.
+        """
 
 
 @dataclass(frozen=True)
@@ -179,15 +199,22 @@ def is_oom(exc: BaseException) -> bool:
     return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
 
 
-def _relative(path: Path, scan_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(scan_dir.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+def _jsonable(params: dict[str, Any]) -> dict[str, Any]:
+    """Normalise params the way they look after a manifest round trip (tuples → lists, ...)."""
+    data: dict[str, Any] = json.loads(json.dumps(params, default=str, sort_keys=True))
+    return data
 
 
 def _tools(stage: Stage) -> dict[str, str]:
     return {"python": platform.python_version(), "drone-scan": __version__, **stage.tool_versions()}
+
+
+def _redact(text: str, scan_dir: Path) -> str:
+    """Remove absolute paths that may contain personal names (CLAUDE.md)."""
+    for prefix in {str(scan_dir.resolve()), str(scan_dir), str(Path.home())}:
+        if prefix and prefix != ".":
+            text = text.replace(prefix, "<scan>" if prefix != str(Path.home()) else "~")
+    return text
 
 
 def _load_manifest(path: Path) -> Manifest | None:
@@ -202,122 +229,172 @@ def _write_manifest(manifest: Manifest, path: Path) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(manifest.model_dump_json(indent=2))
+        os.chmod(tmp, _MANIFEST_MODE)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
 
 
-def _is_cache_hit(
-    previous: Manifest | None, stage: Stage, inputs: dict[str, str], params: dict[str, Any]
-) -> bool:
+class _OutsideScanError(Exception):
+    pass
+
+
+@dataclass
+class _Run:
+    """Mutable state of one stage run, turned into the manifest at the end."""
+
+    stage: Stage
+    scan_dir: Path
+    settings: Settings
+    started: datetime = field(default_factory=lambda: datetime.now(UTC))
+    inputs: dict[str, str] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
+    peak: float | None = None
+    error: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    hints: list[str] = field(default_factory=list)
+
+    @property
+    def out_dir(self) -> Path:
+        return self.scan_dir / self.stage.name
+
+    def relative(self, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(self.scan_dir.resolve()).as_posix()
+        except ValueError as exc:
+            raise _OutsideScanError(path.name) from exc
+
+    def manifest(self, code: ExitCode) -> Manifest:
+        return Manifest(
+            stage=self.stage.name,
+            version=self.stage.version,
+            profile=self.settings.profile,
+            inputs=self.inputs,
+            params=self.params,
+            tools=_tools(self.stage),
+            started=self.started,
+            finished=datetime.now(UTC),
+            peak_vram_mb=self.peak,
+            status=_STATUS[code],
+            exit_code=int(code),
+            error=None if self.error is None else _redact(self.error, self.scan_dir),
+            warnings=self.warnings,
+            hints=self.hints,
+        )
+
+    def finish(self, code: ExitCode) -> StageResult:
+        manifest = self.manifest(code)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        _write_manifest(manifest, self.out_dir / MANIFEST_NAME)
+        event = "stage_finished" if code is ExitCode.OK else "stage_failed"
+        log.info(event, stage=self.stage.name, exit_code=int(code), peak_vram_mb=self.peak)
+        return StageResult(exit_code=code, skipped=False, manifest=manifest)
+
+
+def _is_cache_hit(previous: Manifest | None, run: _Run) -> bool:
     return (
         previous is not None
         and previous.status == "ok"
-        and previous.version == stage.version
-        and previous.inputs == inputs
-        and previous.params == params
+        and previous.version == run.stage.version
+        and previous.inputs == run.inputs
+        and previous.params == run.params
+        and previous.tools == _tools(run.stage)
     )
-
-
-def _peak_vram_mb(torch_cuda: Any) -> float | None:
-    if torch_cuda is None:
-        return None
-    return float(torch_cuda.max_memory_reserved()) / MIB
 
 
 def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = False) -> StageResult:
     """Run ``stage`` for ``scan_dir`` following the stage contract."""
-    out_dir = scan_dir / stage.name
-    manifest_path = out_dir / MANIFEST_NAME
-    started = datetime.now(UTC)
-    input_paths = stage.inputs(scan_dir)
-    params = stage.params(settings)
-    warnings: list[str] = []
-    hints: list[str] = []
-    error: str | None = None
-    peak: float | None = None
-    hashes: dict[str, str] = {}
-
-    def finish(code: ExitCode) -> StageResult:
-        manifest = Manifest(
-            stage=stage.name,
-            version=stage.version,
-            profile=settings.profile,
-            inputs=hashes,
-            params=params,
-            tools=_tools(stage),
-            started=started,
-            finished=datetime.now(UTC),
-            peak_vram_mb=peak,
-            status=_STATUS[code],
-            exit_code=int(code),
-            error=error,
-            warnings=warnings,
-            hints=hints,
+    run = _Run(stage=stage, scan_dir=scan_dir, settings=settings)
+    if not scan_dir.is_dir():
+        # Never create directories for a mistyped --scan path.
+        run.error = f"Scan-Verzeichnis '{scan_dir.name}' existiert nicht."
+        run.hints.append("Abhilfe: Pfad mit --scan prüfen bzw. den Scan zuerst anlegen.")
+        log.info("stage_failed", stage=stage.name, exit_code=int(ExitCode.INPUT_MISSING))
+        return StageResult(
+            ExitCode.INPUT_MISSING, skipped=False, manifest=run.manifest(ExitCode.INPUT_MISSING)
         )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        _write_manifest(manifest, manifest_path)
-        event = "stage_finished" if code is ExitCode.OK else "stage_failed"
-        log.info(event, stage=stage.name, exit_code=int(code), peak_vram_mb=peak)
-        return StageResult(exit_code=code, skipped=False, manifest=manifest)
 
-    missing = [p for p in input_paths if not p.exists()]
-    if missing:
-        error = "Eingabe fehlt: " + ", ".join(_relative(p, scan_dir) for p in missing)
-        hints.append(
-            "Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen "
-            "und den Pfad mit --scan prüfen."
-        )
-        return finish(ExitCode.INPUT_MISSING)
-
-    hashes = {_relative(p, scan_dir): hash_path(p) for p in input_paths}
-    previous = _load_manifest(manifest_path)
-    if not force and previous is not None and _is_cache_hit(previous, stage, hashes, params):
-        log.info("stage_skipped", stage=stage.name)
-        return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=previous)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path.unlink(missing_ok=True)  # a crash must not leave a valid cache behind
-    log.info("stage_started", stage=stage.name, force=force)
-
-    torch_cuda: Any = None
-    if stage.uses_gpu:
-        try:
-            gpu.apply_vram_limit(settings)
-        except gpu.GpuUnavailableError as exc:
-            error = str(exc)
-            hints.append(str(exc))
-            return finish(ExitCode.ERROR)
-        torch_cuda = sys.modules["torch"].cuda
-        torch_cuda.reset_peak_memory_stats()
-
-    ctx = StageContext(scan_dir=scan_dir, out_dir=out_dir, settings=settings, inputs=input_paths)
+    gpu_started = False
     code = ExitCode.OK
+    ctx: StageContext | None = None
     try:
+        input_paths = stage.inputs(scan_dir)
+        run.params = _jsonable(stage.params(settings))
+        missing = [p for p in input_paths if not p.exists()]
+        if missing:
+            names = ", ".join(run.relative(p) for p in missing)
+            raise InputMissingError(f"Eingabe fehlt: {names}", [INPUT_MISSING_HINT])
+        run.inputs = {run.relative(p): hash_path(p) for p in input_paths}
+
+        manifest_path = run.out_dir / MANIFEST_NAME
+        if not force and _is_cache_hit(_load_manifest(manifest_path), run):
+            log.info("stage_skipped", stage=stage.name)
+            cached = _load_manifest(manifest_path)
+            assert cached is not None
+            return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=cached)
+
+        run.out_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path.unlink(missing_ok=True)  # a crash must not leave a valid cache behind
+        log.info("stage_started", stage=stage.name, force=force)
+        if stage.uses_gpu:
+            gpu.apply_vram_limit(settings)  # before the first allocation (KAN-20)
+            gpu.reset_peak_memory()
+            gpu_started = True
+        ctx = StageContext(
+            scan_dir=scan_dir, out_dir=run.out_dir, settings=settings, inputs=input_paths
+        )
         stage.run(ctx)
+    except KeyboardInterrupt:
+        run.error = INTERRUPTED
+        run.hints.append(INTERRUPTED_HINT)
+        _collect(run, ctx, gpu_started)
+        run.finish(ExitCode.ERROR)
+        raise
     except StageError as exc:
-        code, error = exc.exit_code, str(exc)
-        ctx.hints.extend(exc.hints)
+        code, run.error = exc.exit_code, str(exc)
+        run.hints.extend(exc.hints)
+    except _OutsideScanError as exc:
+        code = ExitCode.ERROR
+        run.error = f"Eingabe '{exc}' liegt außerhalb des Scan-Verzeichnisses."
+        run.hints.append("Abhilfe: Dateien in das Scan-Verzeichnis importieren (Stufe 'import').")
+    except gpu.GpuUnavailableError as exc:
+        code, run.error = ExitCode.ERROR, exc.cause
+        run.hints.append(f"Abhilfe: {exc.remedy}")
     except Exception as exc:
+        run.error = f"{type(exc).__name__}: {exc}"
         if is_oom(exc):
-            code, error = ExitCode.OOM, f"{type(exc).__name__}: {exc}"
-            ctx.hints.extend(OOM_HINTS)
+            code = ExitCode.OOM
+            run.hints.append(RAM_OOM_HINT if isinstance(exc, MemoryError) else GPU_OOM_HINT)
         else:
-            code, error = ExitCode.ERROR, f"{type(exc).__name__}: {exc}"
-    finally:
-        peak = _peak_vram_mb(torch_cuda)
-    warnings, hints = ctx.warnings, ctx.hints
-    return finish(code)
+            code = ExitCode.ERROR
+            run.hints.append(ERROR_HINT)
+    _collect(run, ctx, gpu_started)
+    return run.finish(code)
 
 
-def register_stage(app: typer.Typer, factory: Callable[[], Stage]) -> None:
-    """Add ``drone-scan <stage.name> --scan --profile --force`` to ``app``.
+def _collect(run: _Run, ctx: StageContext | None, gpu_started: bool) -> None:
+    """Copy warnings/hints from the stage context and read the VRAM peak."""
+    if ctx is not None:
+        run.warnings = ctx.warnings + run.warnings
+        run.hints = ctx.hints + run.hints
+    if gpu_started:
+        try:
+            run.peak = gpu.peak_reserved_mib()
+        except Exception:  # the measurement must never hide the stage result
+            run.peak = None
 
-    ``factory`` is called once at registration (to read the name) and once per run,
-    so stage constructors must be cheap.
+
+def register_stage(
+    app: typer.Typer, stage_cls: type[Stage], factory: Callable[[], Stage] | None = None
+) -> None:
+    """Add ``drone-scan <stage_cls.name> --scan --profile --force`` to ``app``.
+
+    The stage is only instantiated when the command runs (``factory`` defaults to
+    ``stage_cls``), so ``drone-scan --help`` stays fast.
     """
-    name = factory().name
+    make = factory or stage_cls
+    name = stage_cls.name
 
     @app.command(name)
     def command(
@@ -338,14 +415,15 @@ def register_stage(app: typer.Typer, factory: Callable[[], Stage]) -> None:
         except ValidationError as exc:
             typer.echo(describe_validation_error(exc, profile), err=True)
             raise typer.Exit(code=int(ExitCode.ERROR)) from exc
-        result = run_stage(factory(), scan, settings, force=force)
+        result = run_stage(make(), scan, settings, force=force)
         manifest = result.manifest
+        failed = result.exit_code is not ExitCode.OK
         if result.skipped:
             typer.echo(f"{name}: unverändert, übersprungen (Cache). Neu rechnen mit --force.")
-        elif result.exit_code is ExitCode.OK:
-            typer.echo(f"{name}: fertig.")
-        else:
+        elif failed:
             typer.echo(f"{name}: {manifest.error}", err=True)
+        else:
+            typer.echo(f"{name}: fertig.")
         for hint in manifest.hints:
-            typer.echo(f"Hinweis: {hint}", err=result.exit_code is not ExitCode.OK)
+            typer.echo(f"Hinweis: {hint}", err=failed)
         raise typer.Exit(code=int(result.exit_code))

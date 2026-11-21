@@ -5,8 +5,8 @@ Exitcodes aller Pipeline-Stufen (`drone-scan <stufe> --scan <dir>`), siehe Archi
 | Code | Status im Manifest | Bedeutung | Typische Abhilfe |
 |---|---|---|---|
 | 0 | `ok` | Stufe erfolgreich oder unverändert übersprungen (Cache) | – (`--force` rechnet neu) |
-| 1 | `error` | Unerwarteter Fehler oder fehlende GPU/PyTorch | Meldung in `error` lesen. Bei GPU-Stufen: NVIDIA-Treiber prüfen (`nvidia-smi`) |
-| 10 | `input_missing` | Eingabe fehlt (z. B. Video nicht importiert, vorherige Stufe nicht gelaufen) | Vorherige Stufe bzw. Import ausführen, Pfad mit `--scan` prüfen |
+| 1 | `error` | Unerwarteter Fehler, fehlende GPU/PyTorch oder Abbruch (Strg+C) | Meldung in `error` lesen. Bei GPU-Stufen: NVIDIA-Treiber prüfen (`nvidia-smi`) |
+| 2 | – | Aufruffehler der CLI (z. B. unbekanntes Profil, fehlende Option) | Aufruf mit `--help` prüfen |
+| 10 | `input_missing` | Eingabe oder Scan-Verzeichnis fehlt (z. B. Video nicht importiert, vorherige Stufe nicht gelaufen, Tippfehler in `--scan`) | Vorherige Stufe bzw. Import ausführen, Pfad mit `--scan` prüfen |
 | 20 | `quality_insufficient` | Aufnahmequalität reicht nicht. `hints` enthält immer konkrete Hinweise | Hinweisen folgen (z. B. langsamer filmen, Licht an, AprilTags) und neu aufnehmen |
 | 30 | `oom` | Grafik- oder Arbeitsspeicher reicht nicht | Profil `low_vram_6gb`, andere GPU-Programme schließen, kürzeres Video. Die Job-Queue wiederholt einmal mit kleinerem Profil |
-| 2 | – | Aufruffehler der CLI (z. B. unbekanntes Profil, fehlende Option) | Aufruf mit `--help` prüfen |

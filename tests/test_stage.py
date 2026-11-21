@@ -61,6 +61,12 @@ class EchoStage(Stage):
             raise ValueError("unexpected")
         if self.behaviour == "oom_text":
             raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        if self.behaviour == "ram":
+            raise MemoryError()
+        if self.behaviour == "interrupt":
+            raise KeyboardInterrupt
+        if self.behaviour == "path_error":
+            raise FileNotFoundError(f"missing {ctx.scan_dir.resolve()}/secret/name.txt")
         ctx.warn("Belichtung schwankt.")
         ctx.hint("Licht einschalten.")
         (ctx.out_dir / "out.txt").write_bytes(ctx.inputs[0].read_bytes())
@@ -378,6 +384,9 @@ def test_directory_hash_tracks_content(tmp_path: Path) -> None:
     (frames / "0001.jpg").write_bytes(b"a")
     (frames / "0002.jpg").write_bytes(b"c")
     assert hash_path(frames) != first
+    two_files = hash_path(frames)
+    (frames / "0002.jpg").rename(frames / "0003.jpg")
+    assert hash_path(frames) != two_files
 
 
 def test_manifest_json_is_valid_json_on_disk(scan: Path, settings: Settings) -> None:
@@ -402,7 +411,7 @@ def test_cli_command_returns_contract_exit_codes(scan: Path, behaviour: str, cod
     Then the process exit code follows the stage contract (0/10/20/30/1).
     """
     app = typer.Typer()
-    register_stage(app, lambda: EchoStage(behaviour))
+    register_stage(app, EchoStage, lambda: EchoStage(behaviour))
 
     @app.callback()
     def main() -> None:
@@ -420,7 +429,7 @@ def test_cli_force_flag_reruns(scan: Path) -> None:
     """
     stage = EchoStage()
     app = typer.Typer()
-    register_stage(app, lambda: stage)
+    register_stage(app, EchoStage, lambda: stage)
 
     @app.callback()
     def main() -> None:
@@ -432,3 +441,140 @@ def test_cli_force_flag_reruns(scan: Path) -> None:
     runner.invoke(app, ["echo", "--scan", str(scan), "--force"])
 
     assert stage.runs == 2
+
+
+def test_host_memory_error_exits_30_with_ram_hint(scan: Path, settings: Settings) -> None:
+    """Given a stage that runs out of host memory (MemoryError),
+    When it runs,
+    Then it exits 30 with a hint about RAM, not GPU memory.
+    """
+    result = run_stage(EchoStage("ram"), scan, settings)
+
+    assert result.exit_code is ExitCode.OOM
+    assert any("Arbeitsspeicher" in hint for hint in read_manifest(scan).hints)
+
+
+def test_unexpected_error_has_german_remedy_and_no_absolute_paths(
+    scan: Path, settings: Settings
+) -> None:
+    """Given an exception whose message contains the absolute scan path,
+    When the stage fails with exit 1,
+    Then the manifest has a German remedy and the absolute path is redacted.
+    """
+    result = run_stage(EchoStage("path_error"), scan, settings)
+
+    assert result.exit_code is ExitCode.ERROR
+    manifest = read_manifest(scan)
+    assert any("Abhilfe" in hint for hint in manifest.hints)
+    assert str(scan.resolve()) not in (manifest.error or "")
+    assert "<scan>/secret/name.txt" in (manifest.error or "")
+
+
+def test_interrupt_records_status_and_reraises(scan: Path, settings: Settings) -> None:
+    """Given a run interrupted with Ctrl+C,
+    When the KeyboardInterrupt propagates,
+    Then the manifest says 'error' (no valid cache) and the interrupt is re-raised.
+    """
+    stage = EchoStage("interrupt")
+
+    with pytest.raises(KeyboardInterrupt):
+        run_stage(stage, scan, settings)
+
+    assert read_manifest(scan).status == "error"
+    stage.behaviour = "ok"
+    assert not run_stage(stage, scan, settings).skipped
+
+
+def test_missing_scan_dir_exits_10_without_creating_directories(
+    tmp_path: Path, settings: Settings
+) -> None:
+    """Given a mistyped --scan path,
+    When the stage runs,
+    Then it exits 10 and creates nothing on disk.
+    """
+    missing = tmp_path / "typo"
+
+    result = run_stage(EchoStage(), missing, settings)
+
+    assert result.exit_code is ExitCode.INPUT_MISSING
+    assert not missing.exists()
+    assert result.manifest.hints
+
+
+def test_input_outside_scan_dir_is_rejected(tmp_path: Path, settings: Settings) -> None:
+    """Given a stage whose input lies outside the scan directory,
+    When it runs,
+    Then it exits 1 and the manifest names only the file name, not its absolute path.
+    """
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    outside = tmp_path / "elsewhere.mp4"
+    outside.write_bytes(b"x")
+
+    class Outside(EchoStage):
+        def inputs(self, scan_dir: Path) -> list[Path]:
+            return [outside]
+
+    result = run_stage(Outside(), scan_dir, settings)
+
+    assert result.exit_code is ExitCode.ERROR
+    manifest = read_manifest(scan_dir)
+    assert "elsewhere.mp4" in (manifest.error or "")
+    assert str(tmp_path) not in manifest.model_dump_json()
+
+
+def test_tool_version_change_invalidates_cache(scan: Path, settings: Settings) -> None:
+    """Given a valid manifest,
+    When an external tool version changes (e.g. COLMAP upgrade),
+    Then the stage runs again.
+    """
+    run_stage(EchoStage(), scan, settings)
+
+    class Upgraded(EchoStage):
+        def tool_versions(self) -> dict[str, str]:
+            return {"echo-tool": "0.2"}
+
+    assert not run_stage(Upgraded(), scan, settings).skipped
+
+
+def test_non_json_params_still_hit_the_cache(scan: Path, settings: Settings) -> None:
+    """Given params with tuples and paths,
+    When the stage runs twice,
+    Then the second run is a cache hit (params are normalised like the stored manifest).
+    """
+
+    class TupleParams(EchoStage):
+        def params(self, settings: Settings) -> dict[str, Any]:
+            return {"size": (640, 480), "model": Path("weights/aliked.pt")}
+
+    stage = TupleParams()
+    run_stage(stage, scan, settings)
+
+    assert run_stage(stage, scan, settings).skipped
+    assert read_manifest(scan).params == {"model": "weights/aliked.pt", "size": [640, 480]}
+
+
+def test_cli_prints_german_status_and_hints(scan: Path) -> None:
+    """Given a stage registered as CLI command,
+    When it succeeds, is cached and fails,
+    Then the output says 'fertig', 'übersprungen' and shows 'Hinweis:' lines.
+    """
+    app = typer.Typer()
+    stage = EchoStage()
+    register_stage(app, EchoStage, lambda: stage)
+
+    @app.callback()
+    def main() -> None:
+        """Test app."""
+
+    runner = CliRunner()
+    first = runner.invoke(app, ["echo", "--scan", str(scan)])
+    second = runner.invoke(app, ["echo", "--scan", str(scan)])
+    stage.behaviour = "quality"
+    failed = runner.invoke(app, ["echo", "--scan", str(scan), "--force"])
+
+    assert "echo: fertig." in first.output
+    assert "Hinweis: Licht einschalten." in first.output
+    assert "übersprungen" in second.output
+    assert failed.exit_code == 20
+    assert "Hinweis: Langsamer bewegen" in failed.output
