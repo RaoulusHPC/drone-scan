@@ -26,4 +26,4 @@ Empfohlene Reihenfolge Sprint 0: KAN-22 (US-007) → KAN-16 (US-001) → KAN-20 
 ## Was Claude Code nicht darf (technisch abgesichert)
 - Befehle an echte Drohnen (Hook `.claude/hooks/block_real_flight.py`)
 - Force-Push, Löschen von `workspace/`
-- Stories auf *Done* setzen (macht der PO nach dem Merge)
+- Stories auf *Done* setzen (macht die PM-Session nach dem Merge)
