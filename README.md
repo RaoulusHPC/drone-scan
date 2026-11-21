@@ -26,6 +26,6 @@ Backlog ändern: `backlog/backlog.yaml` bearbeiten → `python3 tools/backlog_ex
 
 Copyright © 2026 Raoul Schönhof
 
-drone-scan ist freie Software unter der **GNU Affero General Public License v3.0 oder später** (`AGPL-3.0-or-later`), siehe [LICENSE](LICENSE) und [ADR-0011](docs/adr/0011-projektlizenz-agpl.md). Wer eine veränderte Version weitergibt **oder als Netzdienst betreibt**, muss den Nutzern den Quellcode dieser Version zugänglich machen. Externe Beiträge werden nur mit Contributor License Agreement (CLA) angenommen. Für eine kommerzielle Lizenz außerhalb der AGPL wende dich an den Rechteinhaber.
+drone-scan ist freie Software unter der **GNU Affero General Public License v3.0 oder später** (`AGPL-3.0-or-later`), siehe [LICENSE](LICENSE) und [ADR-0011](docs/adr/0011-projektlizenz-agpl.md). Wer eine veränderte Version weitergibt **oder als Netzdienst betreibt**, muss den Nutzern den Quellcode dieser Version zugänglich machen. Externe Beiträge werden nur mit Contributor License Agreement (CLA) angenommen; bis ein CLA vorliegt, werden keine externen Beiträge angenommen. Für eine kommerzielle Lizenz außerhalb der AGPL wende dich an den Rechteinhaber.
 
 Fremde Abhängigkeiten behalten ihre eigenen Lizenzen (Lizenzpolitik: [ADR-0007](docs/adr/0007-lizenzpolitik.md)).

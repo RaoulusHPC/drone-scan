@@ -344,7 +344,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | R-01 | Texturarme Wände, Glas, Spiegel → SfM scheitert | hoch | hoch | AprilTags, Licht, Capture Guidance, alternative Matcher (ALIKED+LightGlue), Spike in Sprint 0 |
 | R-02 | Bewegungsunschärfe / Rolling Shutter bei Billigkameras | hoch | mittel | Schärfefilter, langsames Fliegen, höhere Bildrate, Drohnenauswahl |
 | R-03 | 6 GB VRAM reichen für große Gebäude nicht | mittel | hoch | Raum-Chunking, Downscaling, Gaussian-Limit, Komprimierung |
-| R-04 | Lizenzfallen (NC-Gewichte, AGPL im Kern) | mittel | hoch | Lizenz-Gate in der CI, Denylist, Review bei jeder neuen Abhängigkeit |
+| R-04 | Lizenzfallen (NC-Gewichte, fremder GPL/AGPL-Code im Kern → verhindert Doppellizenzierung, ADR-0011) | mittel | hoch | Lizenz-Gate in der CI, Denylist, Review bei jeder neuen Abhängigkeit |
 | R-05 | Autonomer Indoor-Flug für das Budget zu komplex | hoch | mittel | Manueller Flug bis M4, SITL zuerst, Autonomie als eigene Ausbaustufe |
 | R-06 | Kurze Akkulaufzeit (5–19 min) → viele Teilflüge | hoch | mittel | Multi-Flight-Merge, Brückenflüge, Ladeplanung |
 | R-07 | Optische-Fluss-Sensoren liefern indoor schlechte Qualität | mittel | mittel | Sensorvergleich (Matek 3901-L0X vs. MicoAir MTF-01/02), Bodentextur, Licht |
