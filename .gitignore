@@ -1,0 +1,11 @@
+workspace/
+data/*
+!data/samples/
+models/
+*.pt
+*.ckpt
+.env
+.venv/
+__pycache__/
+node_modules/
+.claude/settings.local.json

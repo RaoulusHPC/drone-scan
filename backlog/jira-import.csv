@@ -1,0 +1,689 @@
+Issue ID,Parent ID,Issue Type,Summary,Description,Priority,Story Points,Labels,Labels,Labels,Labels
+EP-01,,Epic,EP-01 Fundament & Entwicklungsumgebung,Epic EP-01 – Meilenstein M0 Fundament & Spikes,High,,m0,epic,,
+EP-02,,Epic,EP-02 Erfassung & Import,Epic EP-02 – Meilenstein M1 MVP „Video → Begehung“,High,,m1,epic,,
+EP-03,,Epic,EP-03 Frame-Aufbereitung & Qualitätsprüfung,Epic EP-03 – Meilenstein M1 MVP „Video → Begehung“,High,,m1,epic,,
+EP-04,,Epic,"EP-04 Rekonstruktion: Kameraposen, Maßstab, Zusammenführung",Epic EP-04 – Meilenstein M1 MVP „Video → Begehung“,High,,m1,epic,,
+EP-05,,Epic,EP-05 Virtuelle Begehung (Splat & Viewer),Epic EP-05 – Meilenstein M1 MVP „Video → Begehung“,High,,m1,epic,,
+EP-06,,Epic,EP-06 Gegenstandssuche,Epic EP-06 – Meilenstein M2 Gegenstandssuche,High,,m2,epic,,
+EP-07,,Epic,EP-07 Präsentation & Export für Verkaufsgespräche,Epic EP-07 – Meilenstein M4 Präsentationsreife,High,,m4,epic,,
+EP-08,,Epic,EP-08 Datenschutz & Datenhaltung,Epic EP-08 – Meilenstein M4 Präsentationsreife,High,,m4,epic,,
+EP-09,,Epic,"EP-09 Web-App, Jobs & Bedienung",Epic EP-09 – Meilenstein M1 MVP „Video → Begehung“,High,,m1,epic,,
+EP-10,,Epic,EP-10 Flugunterstützung & Autonomie,Epic EP-10 – Meilenstein M5 Assistierter Flug,High,,m5,epic,,
+EP-11,,Epic,EP-11 Qualitätssicherung & Compliance,Epic EP-11 – Meilenstein M0 Fundament & Spikes,High,,m0,epic,,
+EP-12,,Epic,EP-12 Hardware-Evaluierung & Erfassungsleitfaden,Epic EP-12 – Meilenstein M3 Drohnen-Erfassung,High,,m3,epic,,
+US-001,EP-01,Task,"Repo-Grundgerüst mit uv, Paketstruktur und Makefile","Als **Entwickler (PO + Claude Code)** möchte ich ein Repository mit der in CLAUDE.md beschriebenen Struktur, uv-Projekt und Make-Zielen, damit Claude Code und ich von Anfang an mit identischen Befehlen arbeiten.
+
+## Akzeptanzkriterien
+- Gegeben ein frischer Clone, wenn `make setup` läuft, dann sind Python-Umgebung (3.12, uv.lock) und pre-commit eingerichtet.
+- `make check` läuft fehlerfrei (ruff, mypy --strict, pytest mit einem Platzhaltertest).
+- Paketstruktur `src/dronescan/{common,capture,ingest,sfm,recon,search,privacy,export,server}` existiert mit Typer-CLI `drone-scan --help`.
+- `.gitignore` schließt `workspace/`, `data/` (außer `data/samples/`) und Modellgewichte aus.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-001 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",Highest,3,m0,infra,claude-code,
+US-002,EP-01,Task,"CI-Pipeline (CPU) mit Lint, Typen, Tests","Als **Entwickler (PO + Claude Code)** möchte ich dass jeder Push automatisch geprüft wird, damit Fehler und Regelverstöße früh auffallen.
+
+## Akzeptanzkriterien
+- CI (GitHub Actions oder Bitbucket Pipelines) führt `make check` bei jedem Push und PR aus.
+- Ein fehlschlagender Test oder Typfehler blockiert den Merge (Branch-Schutz dokumentiert).
+- Laufzeit der CI < 10 min.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-002 (backlog/backlog.yaml)
+- Abhängig von: US-001
+- Architektur: docs/architektur.md",Highest,2,m0,infra,claude-code,
+US-003,EP-01,Task,Docker-Images für Worker (CUDA) und COLMAP,"Als **Entwickler (PO + Claude Code)** möchte ich reproduzierbare Container für GPU-Pipeline und COLMAP, damit die Software auf jedem Ubuntu-Laptop mit NVIDIA-GPU gleich läuft.
+
+## Akzeptanzkriterien
+- `docker compose build` erzeugt Images `worker` (CUDA 12.6, PyTorch < 2.15 cu126, gsplat gebaut für sm_61 und sm_75) und `colmap` (CUDA-Architekturen 61;75).
+- `docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1080 (6, 1) ohne Kompatibilitätswarnung.
+- README beschreibt Voraussetzungen (Treiber, NVIDIA Container Toolkit) inkl. Prüfbefehl.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-003 (backlog/backlog.yaml)
+- Abhängig von: US-001
+- Architektur: docs/architektur.md",Highest,5,m0,infra,,
+US-004,EP-01,Task,Spike: COLMAP + gsplat auf GTX 1080 (6-GB-Grenze) mit Smartphone-Video,"Als **Entwickler (PO + Claude Code)** möchte ich nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1080 im 6-GB-Budget der RTX 2060 rekonstruierbar ist, damit das Hauptrisiko (R-01, R-03) vor der Umsetzung bewertet ist.
+
+## Akzeptanzkriterien
+- 3 Referenzräume (hell/texturiert, weiße Wände, Küche/Bad mit Spiegel) mit dem Smartphone aufgenommen; Verarbeitung auf der GTX 1080 mit 5,5-GB-Grenze.
+- gsplat-Training auf Pascal (sm_61, fp32) nachgewiesen oder Fallback dokumentiert (ADR-0010, Risiko R-13).
+- Je Raum dokumentiert: registrierte Frames (%), Laufzeit je Stufe, Peak-VRAM, subjektive Qualität (Screenshots).
+- Ergebnisbericht `docs/spikes/spike-01.md` mit Empfehlung für Profilparameter `low_vram_6gb`.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-004 (backlog/backlog.yaml)
+- Abhängig von: US-003
+- Architektur: docs/architektur.md",Highest,5,m0,spike,sfm,recon
+US-005,EP-01,Task,Konfigurationssystem mit Profilen und VRAM-Limit,"Als **Entwickler (PO + Claude Code)** möchte ich zentrale Konfiguration mit Profilen `low_vram_6gb` und `default_8gb`, damit alle Stufen dieselben Grenzwerte nutzen und der Zielrechner simulierbar ist.
+
+## Akzeptanzkriterien
+- Pydantic-Settings laden YAML-Profile; Werte per Umgebungsvariable überschreibbar.
+- `DRONESCAN_VRAM_LIMIT_GB` setzt `torch.cuda.set_per_process_memory_fraction` beim Start jeder GPU-Stufe.
+- Unit-Tests für Laden, Überschreiben und ungültige Werte.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-005 (backlog/backlog.yaml)
+- Abhängig von: US-001
+- Architektur: docs/architektur.md",Highest,3,m0,infra,claude-code,
+US-006,EP-01,Task,"Stufen-Framework: Manifest, Caching, Exitcodes","Als **Entwickler (PO + Claude Code)** möchte ich eine gemeinsame Basisklasse für Pipeline-Stufen, damit jede Stufe idempotent, nachvollziehbar und cachebar ist.
+
+## Akzeptanzkriterien
+- Basisklasse schreibt `manifest.json` (Input-Hashes, Parameter, Tool-Versionen, Zeit, peak_vram_mb, warnings, hints).
+- Bei unveränderten Eingaben und Parametern wird die Stufe übersprungen; `--force` erzwingt Neulauf.
+- Exitcodes 0/10/20/30/1 sind implementiert und getestet; OOM wird als 30 erkannt.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-006 (backlog/backlog.yaml)
+- Abhängig von: US-005
+- Architektur: docs/architektur.md",Highest,5,m0,infra,claude-code,
+US-007,EP-01,Task,Jira- und Claude-Code-Workflow einrichten,"Als **Entwickler (PO + Claude Code)** möchte ich Atlassian-MCP, Skills und Subagents funktionsfähig, damit Stories mit `/story KAN-xx` durchgängig bearbeitet werden.
+
+## Akzeptanzkriterien
+- `.mcp.json` verbunden, `/mcp` authentifiziert; Claude Code kann eine KAN-Story lesen und kommentieren.
+- Hook `block_real_flight.py` blockiert Testbefehl mit `--real-flight` nachweislich (Exit 2).
+- Board-Spalten und Labels gemäß docs/projektmanagement.md angelegt.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-007 (backlog/backlog.yaml)
+- Abhängig von: –
+- Architektur: docs/architektur.md",Highest,1,m0,infra,,
+US-008,EP-11,Story,Lizenz-Gate in der CI,"Als **Entwickler (PO + Claude Code)** möchte ich dass nicht erlaubte Lizenzen automatisch erkannt werden, damit das Produkt kommerziell nutzbar bleibt.
+
+## Akzeptanzkriterien
+- `licenses/allowlist.yaml` und `denylist.yaml` (u. a. Inria-3DGS, DUSt3R, MASt3R, SuperPoint-Gewichte) existieren.
+- CI prüft Python- und npm-Abhängigkeiten sowie `models.lock`; eine NC-Lizenz lässt den Build fehlschlagen (Q-8).
+- Copyleft-Pakete sind nur in Container-Images ohne Import aus `src/` erlaubt; Verstoß wird gemeldet.
+
+## Kontext
+- Meilenstein: M0 Fundament & Spikes
+- Lokale ID: US-008 (backlog/backlog.yaml)
+- Abhängig von: US-002
+- Architektur: docs/architektur.md",Highest,3,m0,compliance,claude-code,
+US-009,EP-11,Story,Modell-Registry `models.lock` und `drone-scan models pull`,"Als **Entwickler (PO + Claude Code)** möchte ich Modellgewichte versioniert, geprüft und einmalig herunterladen, damit die Laufzeit offline bleibt und Lizenzen nachvollziehbar sind.
+
+## Akzeptanzkriterien
+- `models.lock` enthält je Modell Name, Version, Quelle, SHA-256, Code- und Gewichtelizenz.
+- `drone-scan models pull` lädt nur gelistete Modelle und prüft die Hashes; Abweichung führt zu Abbruch.
+- Zur Laufzeit erfolgt kein Netzwerkzugriff (Test mit blockiertem Netz).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-009 (backlog/backlog.yaml)
+- Abhängig von: US-008
+- Architektur: docs/architektur.md",Highest,3,m1,compliance,,
+US-010,EP-11,Story,SBOM pro Release,"Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Software-Stückliste zu jedem Release, damit ich Kunden und Partnern die Lizenzkonformität belegen kann.
+
+## Akzeptanzkriterien
+- Release-Job erzeugt SBOM im Format SPDX 2.3 (JSON) und CycloneDX.
+- SBOM enthält auch Modellgewichte aus `models.lock` und Container-Basisimages.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-010 (backlog/backlog.yaml)
+- Abhängig von: US-008, US-009
+- Architektur: docs/architektur.md",High,2,m4,compliance,,
+US-011,EP-11,Story,Golden-Data-Smoketest und GPU-Testlauf mit VRAM-Grenze,"Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Test auf einem Kurzclip, damit Regressionen in der Pipeline sofort sichtbar werden.
+
+## Akzeptanzkriterien
+- `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat.
+- `make test-gpu` läuft mit 5,5-GB-Grenze; Überschreitung lässt den Test fehlschlagen.
+- Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-011 (backlog/backlog.yaml)
+- Abhängig von: US-006, US-021
+- Architektur: docs/architektur.md",Highest,3,m1,infra,claude-code,
+US-012,EP-11,Story,Benchmark-Suite auf Referenzräumen,"Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-7) reproduzierbar messen, damit Fortschritt und Regressionen objektiv bewertbar sind.
+
+## Akzeptanzkriterien
+- `make bench` misst Laufzeit, Peak-VRAM, registrierte Frames, Maßstabsfehler, PSNR/SSIM, Suchtreffer Top-3.
+- Ergebnisse als CSV/Markdown-Bericht mit Vergleich zum letzten Lauf.
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-012 (backlog/backlog.yaml)
+- Abhängig von: US-011
+- Architektur: docs/architektur.md",High,5,m2,infra,,
+US-013,EP-02,Story,Scan anlegen und Videos importieren (CLI),"Als **Pilot** möchte ich einen Scan anlegen und ein oder mehrere Videos (je Akkuflug) hinzufügen, damit alle Aufnahmen eines Gebäudes zusammen verarbeitet werden.
+
+## Akzeptanzkriterien
+- `drone-scan scan create <name>` legt `workspace/<id>/scan.yaml` an.
+- `drone-scan flight add <scan> <video>` kopiert das Video, liest Metadaten (ffprobe: Auflösung, fps, Dauer, Codec, Rotation) und vergibt eine Flug-ID.
+- Nicht unterstützte Formate oder defekte Dateien → Exit 10 mit verständlicher Meldung.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-013 (backlog/backlog.yaml)
+- Abhängig von: US-006
+- Architektur: docs/architektur.md",Highest,3,m1,capture,claude-code,
+US-014,EP-02,Story,Kameraprofil und Intrinsik-Schätzung,"Als **Pilot** möchte ich dass das System meine Kamera (Drohne/Handy/Action-Cam) passend behandelt, damit die Rekonstruktion auch bei Weitwinkel/Fisheye gelingt.
+
+## Akzeptanzkriterien
+- Kameraprofile (YAML) für Smartphone, DJI Neo 2, Tello, RunCam Thumb 2 mit Kameramodell (PINHOLE/OPENCV/OPENCV_FISHEYE).
+- Ohne Profil: automatische Schätzung durch COLMAP, Ergebnis wird im Scan gespeichert.
+- Optionaler Kalibrierbefehl mit Schachbrett-/ChArUco-Video.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-014 (backlog/backlog.yaml)
+- Abhängig von: US-013
+- Architektur: docs/architektur.md",High,3,m1,capture,sfm,
+US-015,EP-02,Story,Upload über Smartphone-Browser,"Als **Pilot** möchte ich Videos direkt vom Android-Smartphone hochladen, damit ich keinen Kartenleser und keine Kommandozeile brauche.
+
+## Akzeptanzkriterien
+- Upload großer Dateien (≥ 4 GB) per Chunked Upload mit Fortschrittsanzeige und Fortsetzen nach Abbruch.
+- Nach dem Upload erscheint der Flug im Scan mit Metadaten.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-015 (backlog/backlog.yaml)
+- Abhängig von: US-013, US-037
+- Architektur: docs/architektur.md",Highest,5,m1,server,viewer,
+US-016,EP-02,Story,Telemetrie-Import (optional),"Als **Pilot** möchte ich vorhandene Flugtelemetrie (CSV, ArduPilot-Log, SRT-Untertitel) mit dem Video verknüpfen, damit Höhe/Lage die Rekonstruktion stützen.
+
+## Akzeptanzkriterien
+- Import von DJI-SRT (falls vorhanden) und ArduPilot-DataFlash-Log; Zeitsynchronisation über Startzeit/Offset.
+- Telemetrie ist optional; die Pipeline funktioniert ohne.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-016 (backlog/backlog.yaml)
+- Abhängig von: US-013
+- Architektur: docs/architektur.md",Medium,3,m3,capture,,
+US-017,EP-02,Story,Tello-Adapter (Aufnahme per Python),"Als **Pilot** möchte ich mit einer Tello per Laptop ein Video aufzeichnen, damit ich günstig mit einer programmierbaren Drohne testen kann.
+
+## Akzeptanzkriterien
+- Adapter auf Basis djitellopy speichert Videostream lokal als MP4 mit Zeitstempeln.
+- Steuerung bleibt manuell (App/Controller); der Adapter sendet keine Flugbefehle.
+- Tests mit Mock-Stream (keine echte Drohne in der CI).
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-017 (backlog/backlog.yaml)
+- Abhängig von: US-013
+- Architektur: docs/architektur.md",Medium,3,m3,capture,hardware,
+US-018,EP-03,Story,Frame-Extraktion mit Schärfe- und Duplikatfilter,"Als **Entwickler (PO + Claude Code)** möchte ich aus Videos automatisch scharfe, nicht redundante Keyframes, damit SfM schneller und robuster läuft.
+
+## Akzeptanzkriterien
+- Dekodierung via ffmpeg (Rotation korrekt); Schärfe per Laplace-Varianz, adaptive Schwelle je Video.
+- Duplikatfilter über Bildähnlichkeit/optischen Fluss; Zielabstand konfigurierbar (z. B. 2–4 Keyframes/s).
+- `frames.parquet` enthält je Frame Zeitstempel, Schärfe, Auswahlgrund.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-018 (backlog/backlog.yaml)
+- Abhängig von: US-013
+- Architektur: docs/architektur.md",Highest,5,m1,ingest,claude-code,
+US-019,EP-03,Story,Qualitätsreport mit Handlungsempfehlungen,"Als **Pilot** möchte ich nach dem Upload erfahren, ob meine Aufnahme gut genug ist, damit ich bei Bedarf sofort nachfliegen kann.
+
+## Akzeptanzkriterien
+- `quality.json` bewertet Schärfe, Belichtung, Bewegungsgeschwindigkeit, Abdeckung (grob).
+- Bei ungenügender Qualität: Exit 20 und ≥ 1 konkreter Hinweis (z. B. „Licht einschalten“, „langsamer fliegen“) (Q-9).
+- Report im Viewer verständlich dargestellt (Ampel).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-019 (backlog/backlog.yaml)
+- Abhängig von: US-018
+- Architektur: docs/architektur.md",Highest,3,m1,ingest,viewer,
+US-020,EP-03,Story,Belichtungs- und Weißabgleichsnormalisierung,"Als **Präsentierende (Makler/Verkäufer)** möchte ich gleichmäßige Farben in der Begehung, damit die Präsentation professionell wirkt.
+
+## Akzeptanzkriterien
+- Optionale Normalisierung von Belichtung/Weißabgleich zwischen Flügen; vorher/nachher-Vergleich im Bericht.
+- Kein negativer Einfluss auf die Registrierungsquote (Benchmark).
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-020 (backlog/backlog.yaml)
+- Abhängig von: US-018
+- Architektur: docs/architektur.md",Medium,3,m4,ingest,,
+US-021,EP-04,Story,Kameraposen mit COLMAP (Stufe `sfm`),"Als **Entwickler (PO + Claude Code)** möchte ich aus Keyframes Kameraposen und eine dünne Punktwolke, damit Splat-Training und Suche darauf aufbauen können.
+
+## Akzeptanzkriterien
+- COLMAP-Adapter (Container) mit Feature-Extraktion, sequenziellem Matching + Loop-Detection, Mapper.
+- Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen.
+- Läuft im Profil `low_vram_6gb` (Bildkante begrenzt).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-021 (backlog/backlog.yaml)
+- Abhängig von: US-018, US-003
+- Architektur: docs/architektur.md",Highest,5,m1,sfm,claude-code,
+US-022,EP-04,Story,AprilTag-Maßstab und Schwerkraftausrichtung,"Als **Präsentierende (Makler/Verkäufer)** möchte ich dass das Modell in echten Metern vorliegt und gerade steht, damit Maße und Grundriss stimmen.
+
+## Akzeptanzkriterien
+- Erkennung von AprilTags (tag36h11) mit konfigurierbarer Kantenlänge; Triangulation über mehrere Frames.
+- Maßstabsfehler ≤ 3 % bei 2 Tags im Raum (Q-4), Boden horizontal ausgerichtet.
+- Druckvorlage (PDF) für Tags im Repo.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-022 (backlog/backlog.yaml)
+- Abhängig von: US-021
+- Architektur: docs/architektur.md",Highest,5,m3,sfm,,
+US-023,EP-04,Story,Mehrere Flüge zu einem Modell zusammenführen,"Als **Pilot** möchte ich dass mehrere Akkuflüge automatisch zu einem Gebäude zusammengesetzt werden, damit auch größere Wohnungen erfasst werden können.
+
+## Akzeptanzkriterien
+- Flüge werden gemeinsam bzw. nacheinander registriert; gemeinsame Bereiche/Tags verbinden die Teilmodelle.
+- Nicht verbindbare Flüge werden gemeldet mit Hinweis „Brückenflug durch Tür X“.
+- Test mit 3 Flügen einer Referenzwohnung.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-023 (backlog/backlog.yaml)
+- Abhängig von: US-021, US-022
+- Architektur: docs/architektur.md",Highest,8,m3,sfm,,
+US-024,EP-04,Story,Alternative Feature-Matcher für texturarme Räume,"Als **Entwickler (PO + Claude Code)** möchte ich einen lizenzsauberen Fallback-Matcher (z. B. ALIKED + LightGlue), damit weiße Wände und schwierige Räume häufiger gelingen.
+
+## Akzeptanzkriterien
+- Lizenzprüfung durch `license-auditor` dokumentiert (keine SuperPoint-Gewichte).
+- Automatischer Fallback, wenn Registrierungsquote < 80 %; Vergleich im Benchmark.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-024 (backlog/backlog.yaml)
+- Abhängig von: US-021, US-012
+- Architektur: docs/architektur.md",High,5,m3,sfm,compliance,
+US-025,EP-04,Story,Raumaufteilung (Chunking) für große Gebäude,"Als **Präsentierende (Makler/Verkäufer)** möchte ich auch Häuser mit vielen Räumen auf 6 GB verarbeiten, damit die Hardwaregrenze kein Ausschlusskriterium ist.
+
+## Akzeptanzkriterien
+- Aufteilung der Szene in räumliche Abschnitte mit Überlappung; Training je Abschnitt im VRAM-Budget.
+- Zusammengesetzte Szene im Viewer ohne sichtbare Nähte an Abschnittsgrenzen (subjektiver Test + Screenshot).
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-025 (backlog/backlog.yaml)
+- Abhängig von: US-026, US-023
+- Architektur: docs/architektur.md",High,8,m3,recon,sfm,
+US-026,EP-05,Story,Gaussian-Splatting-Training im 6-GB-Profil (Stufe `recon.splat`),"Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine fotorealistische 3D-Szene, damit Interessenten die Räume virtuell begehen können.
+
+## Akzeptanzkriterien
+- Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GB (Q-2).
+- Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`.
+- OOM → automatische Wiederholung mit kleinerem Profil (einmal).
+- Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-026 (backlog/backlog.yaml)
+- Abhängig von: US-021, US-005
+- Architektur: docs/architektur.md",Highest,8,m1,recon,claude-code,
+US-027,EP-05,Story,Szenenkomprimierung für Smartphone-Wiedergabe,"Als **Betrachtende (Interessent)** möchte ich dass die Begehung auf meinem Android-Handy flüssig läuft, damit ich sie ohne leistungsstarken Rechner ansehen kann.
+
+## Akzeptanzkriterien
+- Export als komprimierte Szene (z. B. SPZ) mit Begrenzung auf ≤ 1,5 M Gaussians (Pruning).
+- ≥ 30 fps auf einem Mittelklasse-Android-Gerät (Q-7), gemessen und dokumentiert.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-027 (backlog/backlog.yaml)
+- Abhängig von: US-026
+- Architektur: docs/architektur.md",Highest,5,m1,recon,viewer,
+US-028,EP-05,Story,PWA-Viewer: Begehung mit Touch-Navigation,"Als **Betrachtende (Interessent)** möchte ich die Szene im Browser mit Touch-Gesten erkunden, damit ich mich intuitiv durch die Räume bewegen kann.
+
+## Akzeptanzkriterien
+- Splat-Rendering (three.js-basiert) mit Modi Orbit und Begehung (Augenhöhe, Bodenkollision grob).
+- Touch: Wischen = Blick, Zwei-Finger = Bewegung; Desktop: WASD + Maus.
+- Ladeanzeige und Fallback-Meldung bei fehlender WebGL2-Unterstützung.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-028 (backlog/backlog.yaml)
+- Abhängig von: US-027
+- Architektur: docs/architektur.md",Highest,8,m1,viewer,claude-code,
+US-029,EP-05,Story,Raumliste und Sprungpunkte,"Als **Betrachtende (Interessent)** möchte ich direkt zu „Küche“ oder „Bad“ springen, damit ich mich schnell orientiere.
+
+## Akzeptanzkriterien
+- Präsentierende können Sprungpunkte (Position + Blickrichtung + Name) setzen.
+- Raumliste im Viewer; Antippen fliegt animiert zum Punkt.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-029 (backlog/backlog.yaml)
+- Abhängig von: US-028
+- Architektur: docs/architektur.md",High,3,m4,viewer,,
+US-030,EP-05,Story,Mesh-Erzeugung (optional) für Messungen,"Als **Präsentierende (Makler/Verkäufer)** möchte ich ein grobes Mesh der Räume, damit Maße und Grundriss abgeleitet werden können.
+
+## Akzeptanzkriterien
+- Mesh aus gerenderten Tiefen (TSDF, Open3D) oder OpenMVS als separatem Container-Werkzeug.
+- Export als glTF 2.0 (GLB); Laufzeit und VRAM dokumentiert.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-030 (backlog/backlog.yaml)
+- Abhängig von: US-026, US-022
+- Architektur: docs/architektur.md",Medium,5,m4,recon,,
+US-031,EP-06,Story,Suchindex: Detektionen und Bild-Embeddings je Keyframe,"Als **Suchende (Privatnutzer)** möchte ich dass alle Aufnahmen nach dem Scan durchsuchbar sind, damit ich später schnell Gegenstände finden kann.
+
+## Akzeptanzkriterien
+- OpenCLIP-Embeddings je Keyframe in FAISS-Index; Modell aus `models.lock` (Lizenz geprüft).
+- Indexierung läuft im VRAM-Budget (Batchgröße aus Profil) und ist Teil der Pipeline.
+- Index-Größe und Laufzeit im Manifest.
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-031 (backlog/backlog.yaml)
+- Abhängig von: US-021, US-009
+- Architektur: docs/architektur.md",Highest,5,m2,search,claude-code,
+US-032,EP-06,Story,Textsuche mit Open-Vocabulary-Detektion,"Als **Suchende (Privatnutzer)** möchte ich per Freitext („Schlüsselbund“, „rote Brille“) suchen, damit ich nicht in Hunderten Bildern selbst suchen muss.
+
+## Akzeptanzkriterien
+- Text → Top-k-Frames (FAISS) → Open-Vocabulary-Detektor (OWLv2 oder Grounding DINO) → Boxen mit Score.
+- Antwort < 3 s nach Indexierung (Q-6) auf dem Zielrechner.
+- Deutsche und englische Suchbegriffe (Übersetzungstabelle bzw. mehrsprachiges Modell).
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-032 (backlog/backlog.yaml)
+- Abhängig von: US-031
+- Architektur: docs/architektur.md",Highest,5,m2,search,,
+US-033,EP-06,Story,3D-Lokalisierung der Treffer (Triangulation),"Als **Suchende (Privatnutzer)** möchte ich sehen, WO im Gebäude der Gegenstand liegt, damit ich direkt hingehen kann.
+
+## Akzeptanzkriterien
+- Treffer aus ≥ 2 Frames werden trianguliert; Einzeltreffer über gerenderte Tiefe positioniert.
+- Ergebnis: 3D-Position, Raum (falls bekannt), Konfidenz, 2–4 Belegbilder mit Box.
+- Benchmark: Top-3-Trefferquote ≥ 70 % auf Testset mit 20 platzierten Gegenständen (Q-5).
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-033 (backlog/backlog.yaml)
+- Abhängig von: US-032, US-026
+- Architektur: docs/architektur.md",Highest,5,m2,search,,
+US-034,EP-06,Story,Suchergebnis im Viewer anzeigen,"Als **Suchende (Privatnutzer)** möchte ich Treffer als Marker in der 3D-Szene und als Bildliste, damit ich das Ergebnis schnell überprüfen kann.
+
+## Akzeptanzkriterien
+- Suchfeld im Viewer; Ergebnisliste mit Vorschaubildern und Konfidenz.
+- Antippen fliegt zum 3D-Marker; Belegbild ist einblendbar.
+- „Kein Treffer“ mit Tipp (andere Formulierung, Raum nachscannen).
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-034 (backlog/backlog.yaml)
+- Abhängig von: US-033, US-028
+- Architektur: docs/architektur.md",Highest,5,m2,viewer,search,
+US-035,EP-06,Story,Präzise Segmentierung der Treffer (optional),"Als **Suchende (Privatnutzer)** möchte ich den gefundenen Gegenstand hervorgehoben sehen, damit ich ihn auf dem Bild sofort erkenne.
+
+## Akzeptanzkriterien
+- SAM 2 (Apache-2.0) erzeugt Masken für Top-Treffer; VRAM im Budget.
+- Maske im Belegbild und als Hervorhebung im Viewer.
+
+## Kontext
+- Meilenstein: M2 Gegenstandssuche
+- Lokale ID: US-035 (backlog/backlog.yaml)
+- Abhängig von: US-034
+- Architektur: docs/architektur.md",Medium,3,m2,search,,
+US-036,EP-06,Story,Vergleich zweier Scans (Was hat sich verändert?),"Als **Suchende (Privatnutzer)** möchte ich einen neuen Scan mit einem älteren vergleichen, damit ich sehe, wo Gegenstände hinzugekommen oder verschwunden sind.
+
+## Akzeptanzkriterien
+- Registrierung zweier Scans desselben Gebäudes (AprilTags/Features).
+- Liste der Änderungsregionen mit Vorher/Nachher-Bildern.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-036 (backlog/backlog.yaml)
+- Abhängig von: US-033, US-022
+- Architektur: docs/architektur.md",Medium,8,m4,search,sfm,
+US-037,EP-09,Story,Lokaler API-Server mit Job-Queue,"Als **Entwickler (PO + Claude Code)** möchte ich einen Server, der Scans verwaltet und Pipeline-Jobs ausführt, damit die Bedienung per Browser möglich wird.
+
+## Akzeptanzkriterien
+- FastAPI mit OpenAPI-3.1-Spezifikation; Endpunkte für Scans, Flüge, Jobs, Ergebnisse.
+- Job-Queue (SQLite) mit GPU-Concurrency = 1; Abbruch und Wiederaufnahme von Jobs.
+- Fortschritt per Server-Sent Events (Stufe, Prozent, Warnungen, Hinweise).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-037 (backlog/backlog.yaml)
+- Abhängig von: US-006
+- Architektur: docs/architektur.md",Highest,8,m1,server,claude-code,
+US-038,EP-09,Story,Ein-Klick-Pipeline im Browser,"Als **Pilot** möchte ich nach dem Upload nur auf „Verarbeiten“ tippen, damit ich ohne Technikwissen zur Begehung komme.
+
+## Akzeptanzkriterien
+- Startet ingest → sfm → splat → Suchindex; Fortschritt mit geschätzter Restzeit.
+- Bei Exit 20/30 verständliche Meldung mit nächstem Schritt.
+- Am Ende Button „Begehung öffnen“.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-038 (backlog/backlog.yaml)
+- Abhängig von: US-037, US-026, US-028
+- Architektur: docs/architektur.md",Highest,5,m1,viewer,server,
+US-039,EP-09,Story,PWA installierbar im LAN (HTTPS),"Als **Pilot** möchte ich die App auf meinem Android-Startbildschirm, damit ich sie wie eine App nutzen kann.
+
+## Akzeptanzkriterien
+- Anleitung + Skript für lokales Zertifikat (z. B. mkcert); Manifest + Service Worker.
+- QR-Code im Terminal/UI zum Öffnen der Adresse auf dem Handy.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-039 (backlog/backlog.yaml)
+- Abhängig von: US-037
+- Architektur: docs/architektur.md",High,3,m1,viewer,infra,
+US-040,EP-09,Story,Scan-Übersicht und Verwaltung,"Als **Präsentierende (Makler/Verkäufer)** möchte ich alle Scans mit Status, Datum und Vorschaubild sehen, damit ich Objekte und Kunden auseinanderhalte.
+
+## Akzeptanzkriterien
+- Liste mit Name, Datum, Status, Speicherbedarf; Umbenennen, Notizen.
+- Löschen (siehe US-048) mit Bestätigung.
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-040 (backlog/backlog.yaml)
+- Abhängig von: US-037
+- Architektur: docs/architektur.md",High,3,m1,viewer,server,
+US-041,EP-09,Story,Fehlercode-Katalog und verständliche Meldungen,"Als **Pilot** möchte ich bei Problemen eine klare Ursache und Lösung, damit ich nicht hängen bleibe.
+
+## Akzeptanzkriterien
+- `docs/fehlercodes.md` mit allen Codes, Ursachen, Abhilfen; UI nutzt dieselben Texte.
+- Jede Stufe meldet Fehler nur über Codes aus dem Katalog (Test prüft Vollständigkeit).
+
+## Kontext
+- Meilenstein: M1 MVP „Video → Begehung“
+- Lokale ID: US-041 (backlog/backlog.yaml)
+- Abhängig von: US-006
+- Architektur: docs/architektur.md",High,2,m1,server,viewer,
+US-042,EP-07,Story,Teilbares Offline-Viewer-Bundle,"Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Begehung als Paket/Link an Interessenten weitergeben, damit sie ohne meinen Laptop angesehen werden kann.
+
+## Akzeptanzkriterien
+- Export als statischer Ordner (HTML/JS + komprimierte Szene), lauffähig auf jedem statischen Webspace oder lokal.
+- Größe ≤ 150 MB für 60 m²; Ladezeit auf 4G dokumentiert.
+- Anonymisierung ist vor Export standardmäßig aktiv (US-046).
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-042 (backlog/backlog.yaml)
+- Abhängig von: US-027, US-046
+- Architektur: docs/architektur.md",Highest,5,m4,export,viewer,
+US-043,EP-07,Story,Präsentationsmodus mit geführter Tour,"Als **Präsentierende (Makler/Verkäufer)** möchte ich eine Tour mit Stationen und Texten festlegen, damit ich im Verkaufsgespräch strukturiert führen kann.
+
+## Akzeptanzkriterien
+- Stationen aus Sprungpunkten (US-029) mit Titel, Kurztext, Reihenfolge.
+- Abspielmodus mit Weiter/Zurück; funktioniert auch im Export-Bundle.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-043 (backlog/backlog.yaml)
+- Abhängig von: US-029
+- Architektur: docs/architektur.md",High,5,m4,viewer,,
+US-044,EP-07,Story,Grundriss-Skizze mit ungefähren Flächen,"Als **Präsentierende (Makler/Verkäufer)** möchte ich einen groben 2D-Grundriss mit Flächenangaben, damit Interessenten die Raumaufteilung verstehen.
+
+## Akzeptanzkriterien
+- Horizontalschnitt aus Mesh/Punktwolke → Polygon je Raum, SVG-Export.
+- Flächenabweichung ≤ 10 % gegenüber Referenzmessung; deutlicher Hinweis „nicht maßstabsverbindlich“.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-044 (backlog/backlog.yaml)
+- Abhängig von: US-030, US-022
+- Architektur: docs/architektur.md",Medium,8,m4,recon,export,
+US-045,EP-07,Story,"Standardformate exportieren (glTF, PLY/SPZ, E57)","Als **Präsentierende (Makler/Verkäufer)** möchte ich Ergebnisse in gängigen Formaten exportieren, damit Partner sie in eigenen Werkzeugen weiterverwenden.
+
+## Akzeptanzkriterien
+- Splat als PLY und SPZ; Mesh als glTF 2.0; Punktwolke als E57.
+- Exporter für glTF `KHR_gaussian_splatting` als austauschbares Modul (aktiv, sobald Extension ratifiziert).
+- Validierung mit glTF-Validator bzw. Referenz-Reader im Test.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-045 (backlog/backlog.yaml)
+- Abhängig von: US-026
+- Architektur: docs/architektur.md",High,5,m4,export,,
+US-046,EP-08,Story,"Automatische Anonymisierung (Gesichter, Bildschirme, Dokumente)","Als **Präsentierende (Makler/Verkäufer)** möchte ich dass Fotos von Personen, Bildschirme und Dokumente unkenntlich gemacht werden, damit ich Begehungen DSGVO-konform teilen kann.
+
+## Akzeptanzkriterien
+- Detektion von Gesichtern (auch auf Fotos an der Wand), Bildschirmen und Textflächen in Keyframes; Weichzeichnung vor dem Training im Präsentationsmodus.
+- Nutzer kann Bereiche manuell nachmarkieren; Modelle lizenzgeprüft.
+- Bericht: Anzahl geschwärzter Regionen; Stichprobentest auf Referenzdaten.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-046 (backlog/backlog.yaml)
+- Abhängig von: US-018, US-009
+- Architektur: docs/architektur.md",Highest,8,m4,privacy,,
+US-047,EP-08,Story,Einwilligung und Metadaten pro Scan,"Als **Präsentierende (Makler/Verkäufer)** möchte ich dokumentieren, dass der Eigentümer der Aufnahme zugestimmt hat, damit ich rechtlich abgesichert bin.
+
+## Akzeptanzkriterien
+- Feld für Einwilligung (wer, wann, Zweck) in `scan.yaml`; Export nur mit gesetzter Einwilligung (abschaltbar für private Nutzung).
+- Exporte tragen Metadaten: Aufnahmedatum, Hinweis „nicht maßstabsverbindlich“.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-047 (backlog/backlog.yaml)
+- Abhängig von: US-040
+- Architektur: docs/architektur.md",High,2,m4,privacy,,
+US-048,EP-08,Story,Vollständiges Löschen eines Scans,"Als **Präsentierende (Makler/Verkäufer)** möchte ich einen Scan inklusive aller Ableitungen endgültig löschen, damit ich Löschpflichten erfüllen kann.
+
+## Akzeptanzkriterien
+- Löscht Videos, Frames, Modelle, Index, Cache und Job-Historie; Löschprotokoll ohne Inhalte.
+- Test stellt sicher, dass keine Dateien des Scans verbleiben.
+
+## Kontext
+- Meilenstein: M4 Präsentationsreife
+- Lokale ID: US-048 (backlog/backlog.yaml)
+- Abhängig von: US-040
+- Architektur: docs/architektur.md",Highest,2,m4,privacy,server,
+US-049,EP-08,Story,Speicherbereinigung von Zwischenständen,"Als **Pilot** möchte ich Zwischenergebnisse automatisch aufräumen, damit mein Laptop-Speicher nicht vollläuft.
+
+## Akzeptanzkriterien
+- Befehl/Schalter entfernt Frames und Zwischenstufen nach Abschluss, Ergebnisse bleiben.
+- Anzeige des freigegebenen Speichers.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-049 (backlog/backlog.yaml)
+- Abhängig von: US-040
+- Architektur: docs/architektur.md",Medium,2,m3,server,,
+US-050,EP-12,Task,Drohnen-Evaluierung: Videoqualität im Innenraum,"Als **Entwickler (PO + Claude Code)** möchte ich 2–3 Drohnen/Kameras im selben Referenzraum vergleichen, damit die Empfehlung für Nutzer auf Messwerten beruht.
+
+## Akzeptanzkriterien
+- Kandidaten laut docs/drohnen-recherche.md (z. B. DJI Neo 2, gebrauchte Tello, Cinewhoop + Action-Cam) im selben Raum geflogen.
+- Je Gerät: registrierte Frames, PSNR, Bewegungsunschärfe, Flugzeit, Handhabung – als Bericht.
+- Kameraprofile (US-014) für die getesteten Geräte angelegt.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-050 (backlog/backlog.yaml)
+- Abhängig von: US-026, US-012
+- Architektur: docs/architektur.md",Highest,5,m3,hardware,spike,
+US-051,EP-12,Story,Erfassungsleitfaden im Viewer (Checkliste vor dem Flug),"Als **Pilot** möchte ich vor dem Flug eine kurze Checkliste und Flugmuster, damit meine Aufnahmen beim ersten Versuch gut werden.
+
+## Akzeptanzkriterien
+- Checkliste: Licht, Türen, Tags, Propellerschutz, Akku; Flugmuster-Grafik (Raum umrunden, Türen doppelt).
+- Inhalte basieren auf Ergebnissen aus US-004 und US-050.
+
+## Kontext
+- Meilenstein: M3 Drohnen-Erfassung
+- Lokale ID: US-051 (backlog/backlog.yaml)
+- Abhängig von: US-050
+- Architektur: docs/architektur.md",High,2,m3,viewer,hardware,
+US-052,EP-12,Task,Aufbau offene Flugplattform (ArduPilot-Cinewhoop),"Als **Entwickler (PO + Claude Code)** möchte ich eine eigene Indoor-Drohne mit ArduPilot, optischem Fluss und Aufnahmekamera, damit assistierter Flug mit offener Firmware möglich wird.
+
+## Akzeptanzkriterien
+- Stückliste (≤ 400 €) und Bauanleitung in `docs/hardware/`; FC mit ArduPilot-Unterstützung und ausreichend Flash für Non-GPS-Navigation.
+- Optical-Flow/ToF-Sensor (MatekSys 3901-L0X oder MicoAir MTF-01/02) eingerichtet und kalibriert.
+- Positionshaltung (Loiter/FlowHold) indoor 60 s mit Drift ≤ 30 cm (manuell überwacht, Propellerschutz).
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-052 (backlog/backlog.yaml)
+- Abhängig von: US-050
+- Architektur: docs/architektur.md",High,8,m5,hardware,flight,
+US-053,EP-10,Task,SITL-Umgebung: ArduPilot + Gazebo mit Innenraumwelt,"Als **Entwickler (PO + Claude Code)** möchte ich eine simulierte Wohnung mit simulierter Drohne, damit Flugcode ohne Risiko entwickelt und in der CI getestet werden kann.
+
+## Akzeptanzkriterien
+- Container `sitl` startet ArduPilot Copter SITL + Gazebo mit Innenraumwelt und optischem Fluss/Abstandssensor.
+- pytest-Marker `sitl`; Beispieltest: Start, 1 m Schweben, Landung.
+- Alle Endpunkte 127.0.0.1; Hook blockiert Nicht-SITL-Ziele.
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-053 (backlog/backlog.yaml)
+- Abhängig von: US-003
+- Architektur: docs/architektur.md",High,8,m5,flight,,
+US-054,EP-10,Story,Missionsplanung: Rasterflug aus Raumumriss,"Als **Pilot** möchte ich aus einem grob gezeichneten Raumumriss eine Flugbahn erzeugen, damit die Drohne den Raum mit ausreichender Überlappung abfliegt.
+
+## Akzeptanzkriterien
+- Eingabe: Polygon + Deckenhöhe; Ausgabe: Wegpunkte mit Blickrichtung, Abstand zu Wänden ≥ 1 m, ≤ 0,5 m/s.
+- Simulierte Abdeckung ≥ 90 % der Wandfläche (SITL/Renderer).
+- Mission als MAVLink-Missionsdatei exportierbar (QGroundControl-kompatibel).
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-054 (backlog/backlog.yaml)
+- Abhängig von: US-053
+- Architektur: docs/architektur.md",High,8,m5,flight,,
+US-055,EP-10,Story,"Sicherheitsfunktionen: Geofence, Failsafes, Not-Aus","Als **Pilot** möchte ich dass die Drohne bei Problemen sicher reagiert, damit weder Drohne noch Einrichtung beschädigt werden.
+
+## Akzeptanzkriterien
+- Parameter-Set für Geofence (Raumgrenzen), Batterie-Failsafe (Landen), Link-Verlust (Landen), Max-Geschwindigkeit.
+- Jeder Failsafe in SITL getestet; Subagent `flight-safety` ohne BLOCKER.
+- Not-Aus-Schalter auf Fernsteuerung dokumentiert und getestet (Hardware, vom Menschen).
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-055 (backlog/backlog.yaml)
+- Abhängig von: US-053
+- Architektur: docs/architektur.md",Highest,5,m5,flight,,
+US-056,EP-10,Story,Assistierter Flug auf Hardware (manuell freigegeben),"Als **Pilot** möchte ich eine geplante Mission im echten Raum fliegen lassen, die ich jederzeit übernehmen kann, damit Aufnahmen gleichmäßiger und reproduzierbarer werden.
+
+## Akzeptanzkriterien
+- Start nur über menschlich gestarteten Befehl `--real-flight` mit interaktiver Bestätigung (nie durch Claude Code).
+- Mission in einem Raum vollständig geflogen, Video automatisch dem Scan zugeordnet.
+- Pilot kann jederzeit per Moduswechsel übernehmen; Flugprotokoll gespeichert.
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-056 (backlog/backlog.yaml)
+- Abhängig von: US-052, US-054, US-055
+- Architektur: docs/architektur.md",Medium,8,m5,flight,hardware,
+US-057,EP-10,Story,Live-Vorschau der Abdeckung während des Flugs,"Als **Pilot** möchte ich noch während des Flugs sehen, welche Bereiche fehlen, damit ich nicht erst nach der Auswertung nachfliegen muss.
+
+## Akzeptanzkriterien
+- Grober Live-Abdeckungsplan auf dem Smartphone (aus Stream oder Telemetrie), Latenz ≤ 2 s.
+- Funktioniert mit SITL und mindestens einer Hardware-Konfiguration.
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-057 (backlog/backlog.yaml)
+- Abhängig von: US-053
+- Architektur: docs/architektur.md",Medium,8,m5,flight,viewer,
+US-058,EP-10,Story,Autonome Raumerkundung (Exploration) – Forschungsstory,"Als **Pilot** möchte ich dass die Drohne unbekannte Räume selbstständig erkundet, damit kein Umriss vorgezeichnet werden muss.
+
+## Akzeptanzkriterien
+- Frontier-basierte Exploration in SITL mit Kollisionsvermeidung; Lizenz der genutzten VIO/SLAM-Komponenten geprüft (GPL nur als separater Prozess).
+- Bewertung Machbarkeit auf Billig-Hardware als Bericht (Go/No-Go).
+
+## Kontext
+- Meilenstein: M5 Assistierter Flug
+- Lokale ID: US-058 (backlog/backlog.yaml)
+- Abhängig von: US-054, US-055
+- Architektur: docs/architektur.md",Medium,8,m5,flight,spike,
