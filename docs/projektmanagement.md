@@ -86,14 +86,14 @@
 | **Labels** | `m0` … `m5` (Meilenstein), Komponenten-Labels `capture`, `ingest`, `sfm`, `recon`, `search`, `viewer`, `server`, `privacy`, `export`, `flight`, `infra`, `compliance`, `hardware`; `spike`, `claude-code` |
 | **Releases / Versionen** | `M0-Fundament`, `M1-MVP`, `M2-Suche`, `M3-Drohne`, `M4-Präsentation`, `M5-Flug` |
 | **Board-Spalten** | Backlog → Ready → In Progress → In Review (PR offen) → Done |
-| **Jira-Status (deutsche UI)** | Board „KAN board“ (ID 2, team-managed). Spalte → Status: Backlog/To Do → *Zu erledigen*, Ready → *Bereit* (in JQL: `status = "Ready"` bzw. ID 10006), In Progress → *In Arbeit*, In Review → *Wird überprüft*, Done → *Fertig*. Transitions immer über den **Zielstatus** auswählen, nicht über den Spaltennamen |
+| **Jira-Status (deutsche UI)** | Board „KAN board“ (ID 2, team-managed). Spalte → Status: Backlog/To Do → *Zu erledigen*, Ready → Status-ID **10007** (aktuell *Ready_0*; in JQL immer die ID verwenden, Namen sind übersetzt/umbenannt), In Progress → *In Arbeit*, In Review → *Wird überprüft*, Done → *Fertig*. Transitions immer über den **Zielstatus** (ID) auswählen, nicht über den Transitions- oder Spaltennamen |
 | **Verknüpfungen** | „blocks / is blocked by“ für die Abhängigkeiten aus dem Backlog |
 
 **Nützliche JQL-Filter**
 
 ```text
 Aktueller Sprint:       project = KAN AND sprint in openSprints() ORDER BY rank
-Bereit für Claude Code: project = KAN AND status = "Ready" AND labels = claude-code ORDER BY priority DESC, rank
+Bereit für Claude Code: project = KAN AND status = 10007 AND labels = claude-code ORDER BY priority DESC, rank
 Meilenstein M1 offen:   project = KAN AND labels = m1 AND statusCategory != Done
 Blockiert:              project = KAN AND issueLinkType = "is blocked by" AND statusCategory != Done
 Lizenz-Themen:          project = KAN AND labels = compliance
