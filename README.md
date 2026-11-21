@@ -21,3 +21,11 @@ Open-Source-Pipeline: Drohnen- oder Smartphone-Video → 3D-Modell von Innenräu
 Siehe [docs/uebergabe-claude-code.md](docs/uebergabe-claude-code.md): `claude` starten → `/mcp` → `/story KAN-22` (Jira-Backlog ist bereits angelegt: KAN-4 … KAN-73).
 
 Backlog ändern: `backlog/backlog.yaml` bearbeiten → `python3 tools/backlog_export.py` (validiert und erzeugt Markdown + Jira-CSV) → `/jira-sync`.
+
+## Lizenz
+
+Copyright © 2026 Raoul Schönhof
+
+drone-scan ist freie Software unter der **GNU Affero General Public License v3.0 oder später** (`AGPL-3.0-or-later`), siehe [LICENSE](LICENSE) und [ADR-0011](docs/adr/0011-projektlizenz-agpl.md). Wer eine veränderte Version weitergibt **oder als Netzdienst betreibt**, muss den Nutzern den Quellcode dieser Version zugänglich machen. Externe Beiträge werden nur mit Contributor License Agreement (CLA) angenommen; bis ein CLA vorliegt, werden keine externen Beiträge angenommen. Für eine kommerzielle Lizenz außerhalb der AGPL wende dich an den Rechteinhaber.
+
+Fremde Abhängigkeiten behalten ihre eigenen Lizenzen (Lizenzpolitik: [ADR-0007](docs/adr/0007-lizenzpolitik.md)).

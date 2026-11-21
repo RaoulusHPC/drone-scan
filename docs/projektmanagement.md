@@ -172,7 +172,7 @@ Das Risikoregister steht in der [Architektur, Abschnitt 11](architektur.md#11-ri
 | M3 | Ersatzakkus, Propellerschutz, microSD | ≈ 30–60 € | mit Drohne |
 | M5 | Offene Plattform: 3,5″-Cinewhoop mit ArduPilot-fähigem FC + Optical-Flow/ToF-Sensor + Action-Cam, Funk | ≈ 250–400 € | Sprint 9 bestellen |
 | laufend | Software | 0 € (Open Source) | – |
-| optional | Haftpflichtversicherung (Drohne), Rechtsberatung DSGVO vor Pilotkunden | nach Angebot | vor M4 |
+| optional | Haftpflichtversicherung (Drohne), Rechtsberatung DSGVO sowie Lizenz/CLA/Quellcode-Angebot (ADR-0011) vor Pilotkunden | nach Angebot | vor M4 |
 
 ---
 

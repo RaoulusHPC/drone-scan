@@ -317,6 +317,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | 0008 | Gegenstandssuche über 2D-Detektion + 3D-Lifting statt semantischer 3D-Felder | angenommen |
 | 0009 | Python 3.12 + uv (Pipeline/Server), TypeScript + Vite (Viewer), Docker Compose (Betrieb) | angenommen |
 | 0010 | Dual-GPU-Unterstützung: Entwicklung auf GTX 1080 (sm_61), Ziel RTX 2060 (sm_75); CUDA 12.6 + PyTorch ≤ 2.14 gepinnt | angenommen |
+| 0011 | Projektlizenz **AGPL-3.0-or-later** für den eigenen Code (Copyleft auch bei Netznutzung); fremde Abhängigkeiten weiter nach ADR-0007 | angenommen |
 
 ---
 
@@ -343,7 +344,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | R-01 | Texturarme Wände, Glas, Spiegel → SfM scheitert | hoch | hoch | AprilTags, Licht, Capture Guidance, alternative Matcher (ALIKED+LightGlue), Spike in Sprint 0 |
 | R-02 | Bewegungsunschärfe / Rolling Shutter bei Billigkameras | hoch | mittel | Schärfefilter, langsames Fliegen, höhere Bildrate, Drohnenauswahl |
 | R-03 | 6 GB VRAM reichen für große Gebäude nicht | mittel | hoch | Raum-Chunking, Downscaling, Gaussian-Limit, Komprimierung |
-| R-04 | Lizenzfallen (NC-Gewichte, AGPL im Kern) | mittel | hoch | Lizenz-Gate in der CI, Denylist, Review bei jeder neuen Abhängigkeit |
+| R-04 | Lizenzfallen (NC-Gewichte, fremder GPL/AGPL-Code im Kern → verhindert Doppellizenzierung, ADR-0011) | mittel | hoch | Lizenz-Gate in der CI, Denylist, Review bei jeder neuen Abhängigkeit |
 | R-05 | Autonomer Indoor-Flug für das Budget zu komplex | hoch | mittel | Manueller Flug bis M4, SITL zuerst, Autonomie als eigene Ausbaustufe |
 | R-06 | Kurze Akkulaufzeit (5–19 min) → viele Teilflüge | hoch | mittel | Multi-Flight-Merge, Brückenflüge, Ladeplanung |
 | R-07 | Optische-Fluss-Sensoren liefern indoor schlechte Qualität | mittel | mittel | Sensorvergleich (Matek 3901-L0X vs. MicoAir MTF-01/02), Bodentextur, Licht |
