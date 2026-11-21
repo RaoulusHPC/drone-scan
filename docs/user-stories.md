@@ -79,18 +79,18 @@ Als **Entwickler (PO + Claude Code)** möchte ich reproduzierbare Container für
 **Akzeptanzkriterien**
 
 - [ ] `docker compose build` erzeugt Images `worker` (CUDA 12.6, PyTorch < 2.15 cu126, gsplat gebaut für sm_61 und sm_75) und `colmap` (CUDA-Architekturen 61;75).
-- [ ] `docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1080 (6, 1) ohne Kompatibilitätswarnung.
+- [ ] `docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1060 (6, 1) ohne Kompatibilitätswarnung.
 - [ ] README beschreibt Voraussetzungen (Treiber, NVIDIA Container Toolkit) inkl. Prüfbefehl.
 
-### US-004 / KAN-19: Spike: COLMAP + gsplat auf GTX 1080 (6-GB-Grenze) mit Smartphone-Video
+### US-004 / KAN-19: Spike: COLMAP + gsplat auf GTX 1060 (6-GiB-Budget) mit Smartphone-Video
 
 `Task` · **Must** · 5 SP · M0 Fundament & Spikes · Labels: spike, sfm, recon · Abhängig von: US-003 / KAN-18
 
-Als **Entwickler (PO + Claude Code)** möchte ich nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1080 im 6-GB-Budget der RTX 2060 rekonstruierbar ist, damit das Hauptrisiko (R-01, R-03) vor der Umsetzung bewertet ist.
+Als **Entwickler (PO + Claude Code)** möchte ich nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1060 im 6-GiB-Budget der RTX 2060 rekonstruierbar ist, damit das Hauptrisiko (R-01, R-03) vor der Umsetzung bewertet ist.
 
 **Akzeptanzkriterien**
 
-- [ ] 3 Referenzräume (hell/texturiert, weiße Wände, Küche/Bad mit Spiegel) mit dem Smartphone aufgenommen; Verarbeitung auf der GTX 1080 mit 5,5-GB-Grenze.
+- [ ] 3 Referenzräume (hell/texturiert, weiße Wände, Küche/Bad mit Spiegel) mit dem Smartphone aufgenommen; Verarbeitung auf der GTX 1060 mit 5,0-GiB-Allocator-Grenze (RTX 2070 SUPER nur nach Zustimmung des POs).
 - [ ] gsplat-Training auf Pascal (sm_61, fp32) nachgewiesen oder Fallback dokumentiert (ADR-0010, Risiko R-13).
 - [ ] Je Raum dokumentiert: registrierte Frames (%), Laufzeit je Stufe, Peak-VRAM, subjektive Qualität (Screenshots).
 - [ ] Ergebnisbericht `docs/spikes/spike-01.md` mit Empfehlung für Profilparameter `low_vram_6gb`.
@@ -313,7 +313,7 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine
 
 **Akzeptanzkriterien**
 
-- [ ] Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GB (Q-2).
+- [ ] Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GiB gesamt pro Prozess (Q-2).
 - [ ] Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`.
 - [ ] OOM → automatische Wiederholung mit kleinerem Profil (einmal).
 - [ ] Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
@@ -736,7 +736,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Tes
 **Akzeptanzkriterien**
 
 - [ ] `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat.
-- [ ] `make test-gpu` läuft mit 5,5-GB-Grenze; Überschreitung lässt den Test fehlschlagen.
+- [ ] `make test-gpu` läuft mit 5,0-GiB-Allocator-Grenze auf der GTX 1060; Überschreitung lässt den Test fehlschlagen.
 - [ ] Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert.
 
 ### US-012 / KAN-27: Benchmark-Suite auf Referenzräumen

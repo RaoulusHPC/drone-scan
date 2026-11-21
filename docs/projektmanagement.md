@@ -115,7 +115,7 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 **Definition of Done**
 - [ ] Alle Akzeptanzkriterien durch automatische Tests abgedeckt (GPU-Tests markiert)
 - [ ] `make check` grün (ruff, mypy, pytest CPU, Lizenz-Gate)
-- [ ] Bei GPU-Code: `make test-gpu` grün **mit VRAM-Grenze 5,5 GB**, Peak-VRAM im PR notiert
+- [ ] Bei GPU-Code: `make test-gpu` grün **mit Allocator-Grenze 5,0 GiB**, Peak-VRAM (gesamt ≤ 5,5 GiB) im PR notiert
 - [ ] Doku aktualisiert (Architektur/ADR/README/Fehlercodes, sofern betroffen)
 - [ ] PR mit Story-Key im Titel, gemergt: durch Claude Code gemäß Self-Merge-Regel (§ 6), sonst vom PO reviewt und gemergt
 - [ ] Jira-Story auf *Done*, Kommentar mit PR-Link und Demo-Hinweis
@@ -139,7 +139,7 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 - **Commits:** Conventional Commits mit Story-Key, z. B. `feat(sfm): add AprilTag scale alignment (KAN-27)`.
 - **Branches:** `feat/KAN-xx-…`, `fix/KAN-xx-…`, `spike/KAN-xx-…`.
 - **Self-Merge-Regel (seit 21.11.2026, PO-Entscheidung):** Claude Code mergt einen PR selbst (Merge-Commit), wenn **alle** Bedingungen erfüllt sind:
-  1. `make check` grün, sobald vorhanden auch die CI. Bei GPU-Code zusätzlich `make test-gpu` mit 5,5-GB-Grenze.
+  1. `make check` grün, sobald vorhanden auch die CI. Bei GPU-Code zusätzlich `make test-gpu` (5,0-GiB-Grenze, GTX 1060).
   2. Subagent `reviewer` meldet keine BLOCKER. Je nach Änderung gilt das auch für `license-auditor` und `vram-guard`.
   3. Der PR ist konfliktfrei (`mergeable_state = clean`).
   4. Der PR ändert **nichts** unter `flight/`, an `CLAUDE.md`, `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik, die Schutzmechanismen von Claude Code oder dessen eigene Regeln (einschließlich dieser Self-Merge-Regel) betreffen.
@@ -158,7 +158,7 @@ Das Risikoregister steht in der [Architektur, Abschnitt 11](architektur.md#11-ri
 | Risiko | Frühindikator | Gegenmaßnahme ausgelöst wenn … |
 |---|---|---|
 | R-01 SfM scheitert indoor | < 80 % registrierte Keyframes im Spike | … in 2 von 3 Referenzräumen → Matcher-Alternative, AprilTag-Pflicht |
-| R-03 VRAM reicht nicht | Peak > 5,5 GB im Profil `low_vram_6gb` | … bei Referenzwohnung → Chunking vorziehen (Story aus M3 nach M1) |
+| R-03 VRAM reicht nicht | Peak > 5,5 GiB im Profil `low_vram_6gb` | … bei Referenzwohnung → Chunking vorziehen (Story aus M3 nach M1) |
 | R-05 Autonomie zu teuer/komplex | SITL-Positionshaltung instabil nach 2 Sprints | … → M5 auf „assistiert“ begrenzen, manueller Flug bleibt Standard |
 
 ---
@@ -182,7 +182,7 @@ Das Risikoregister steht in der [Architektur, Abschnitt 11](architektur.md#11-ri
 |---|---|---|
 | Scan-Erfolgsquote (begehbare Szene ohne manuellen Eingriff) | `reports/summary.json` | ≥ 80 % ab M3 |
 | Verarbeitungszeit pro 60 m² | Manifeste | ≤ 60 min |
-| Peak-VRAM | Manifeste | ≤ 5,5 GB |
+| Peak-VRAM | Manifeste | ≤ 5,5 GiB |
 | Treffer Top-3 Gegenstandssuche | Benchmark-Set | ≥ 70 % |
 | Sprint-Zuverlässigkeit (erledigte / geplante SP) | Jira | 70–90 % |
 | Lizenzverstöße im Main-Branch | CI | 0 |

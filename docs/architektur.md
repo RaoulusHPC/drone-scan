@@ -23,7 +23,7 @@ Kleine Drohnen fliegen durch Gebäude und nehmen dabei Videos auf. Aus diesen Vi
 
 | Prio | Qualitätsziel | Konkretisierung |
 |---|---|---|
-| 1 | **Effizienz auf Consumer-Hardware** | Läuft vollständig auf einem Laptop mit RTX 2060 (6 GB VRAM). Keine Stufe überschreitet 5,5 GB VRAM. |
+| 1 | **Effizienz auf Consumer-Hardware** | Läuft vollständig auf einem Laptop mit RTX 2060 (6 GiB VRAM). Keine Stufe überschreitet 5,5 GiB VRAM pro Prozess (inkl. CUDA-Kontext). |
 | 2 | **Rechtssicherheit / Lizenzreinheit** | Ausschließlich Open Source. Kommerzielle Nutzung muss möglich sein, also keine Komponenten mit „non-commercial“-Lizenz. |
 | 3 | **Datenschutz** | Offline-first: Alle Daten bleiben lokal. Es gibt keine Cloud-Pflicht und keine Telemetrie. |
 | 4 | **Robustheit** | Schlechtes Material (Unschärfe, texturarme Wände, mehrere Akkuflüge) führt zu verwertbaren Ergebnissen oder zu **konkreten Handlungsempfehlungen**. |
@@ -47,7 +47,7 @@ Kleine Drohnen fliegen durch Gebäude und nehmen dabei Videos auf. Aus diesen Vi
 | Typ | Randbedingung |
 |---|---|
 | Technisch | Zielrechner: Laptop mit **RTX 2060 (6 GB, Turing, CUDA Compute Capability 7.5)**, Ubuntu LTS. Endgerät: Android-Smartphone (aktueller Chrome/Firefox). |
-| Technisch | **Entwicklungsrechner:** Desktop mit **GTX 1080 (8 GB, Pascal, Compute Capability 6.1)**. Claude Code läuft lokal auf diesem Rechner. Pascal wird von aktuellen PyTorch-Builds nur noch über **CUDA-12.6-Wheels** unterstützt, **PyTorch 2.14 ist die letzte Version mit vorgefertigten Paketen** (siehe ADR-0010). Builds werden daher für `sm_61` **und** `sm_75` erzeugt, Tests laufen mit 5,5-GB-Grenze, damit der Zielrechner abgebildet ist. |
+| Technisch | **Entwicklungsrechner:** Desktop mit **GTX 1060 6GB (Pascal, Compute Capability 6.1)**. Die zusätzlich verbaute RTX 2070 SUPER ist reserviert und wird nur mit Zustimmung des POs genutzt. Claude Code läuft lokal auf diesem Rechner. Pascal wird von aktuellen PyTorch-Builds nur noch über **CUDA-12.6-Wheels** unterstützt, **PyTorch 2.14 ist die letzte Version mit vorgefertigten Paketen** (siehe ADR-0010). Builds werden daher für `sm_61` **und** `sm_75` erzeugt, Tests laufen mit 5,0-GiB-Allocator-Grenze, damit der Zielrechner abgebildet ist. |
 | Technisch | Drohne: „einfache Drohne mit Kamera“, Entwicklung ca. 100 €, Endnutzer max. 500 € → **das System muss drohnen-agnostisch sein** (Videodatei als Minimalschnittstelle). |
 | Lizenz | Nur Open Source. **Bevorzugt** MIT/BSD/Apache-2.0. **Copyleft** (GPL/AGPL) nur als eigenständiges Werkzeug bzw. als separater Prozess. **Verboten:** Lizenzen mit Nutzungsbeschränkung („non-commercial“, z. B. Inria-3DGS, DUSt3R/MASt3R, SuperPoint-Gewichte). |
 | Organisatorisch | Ein Gründer als Product Owner, Implementierung überwiegend mit Claude Code. Projektmanagement in **Jira** (Projekt „DRN“ (Schlüssel `KAN`)). |
@@ -259,7 +259,7 @@ flowchart LR
 - Harte Grenze in Tests: `torch.cuda.set_per_process_memory_fraction`. Dadurch wird der Zielrechner auch auf stärkeren Entwicklungsrechnern simuliert.
 - Umsetzung (KAN-20):
   - **Profile:** liegen als YAML in `src/dronescan/common/profiles/`. `common.config.load_settings()` lädt sie mit dieser Priorität: Umgebungsvariable `DRONESCAN_*` > Profil. Verschachtelte Werte werden mit `__` angesprochen, z. B. `DRONESCAN_SPLAT__MAX_GAUSSIANS`. Das Profil wählt `--profile`, sonst `DRONESCAN_PROFILE`, sonst `low_vram_6gb`.
-  - **VRAM-Grenze:** `DRONESCAN_VRAM_LIMIT_GB` (in GiB) überschreibt `vram_limit_gb` (Profil `low_vram_6gb`: 5,0 GiB für den PyTorch-Allocator; CUDA-Kontext kommt hinzu, Ziel ≤ 5,5 GB gesamt). `common.gpu.apply_vram_limit()` setzt daraus beim Start jeder GPU-Stufe den Speicheranteil. Der CUDA-Kontext selbst ist nicht begrenzt, deshalb bleibt Puffer unter 6 GB.
+  - **VRAM-Grenze:** `DRONESCAN_VRAM_LIMIT_GB` (in GiB) überschreibt `vram_limit_gb` (Profil `low_vram_6gb`: 5,0 GiB für den PyTorch-Allocator; CUDA-Kontext kommt hinzu, Ziel ≤ 5,5 GiB gesamt). `common.gpu.apply_vram_limit()` setzt daraus beim Start jeder GPU-Stufe den Speicheranteil. Der CUDA-Kontext selbst ist nicht begrenzt, deshalb bleibt Puffer unter 6 GB.
   - **Präzision:** `common.gpu.use_fp16()` erlaubt fp16 nur ab sm_70. Auf Pascal läuft immer fp32 (ADR-0010).
   - **Anzeige:** `drone-scan config [--profile …]` zeigt die wirksame Konfiguration.
 - Bei OOM wird einmal automatisch mit verkleinertem Profil wiederholt. `peak_vram_mb` steht im Manifest.
@@ -321,7 +321,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | 0007 | Lizenzpolitik: permissiv bevorzugt, Copyleft nur als separater Prozess, Nutzungsbeschränkung verboten | angenommen |
 | 0008 | Gegenstandssuche über 2D-Detektion + 3D-Lifting statt semantischer 3D-Felder | angenommen |
 | 0009 | Python 3.12 + uv (Pipeline/Server), TypeScript + Vite (Viewer), Docker Compose (Betrieb) | angenommen |
-| 0010 | Dual-GPU-Unterstützung: Entwicklung auf GTX 1080 (sm_61), Ziel RTX 2060 (sm_75); CUDA 12.6 + PyTorch ≤ 2.14 gepinnt | angenommen |
+| 0010 | Dual-GPU-Unterstützung: Entwicklung auf GTX 1060 6GB (sm_61), Ziel RTX 2060 (sm_75); CUDA 12.6 + PyTorch ≤ 2.14 gepinnt | angenommen |
 | 0011 | Projektlizenz **AGPL-3.0-or-later** für den eigenen Code (Copyleft auch bei Netznutzung); fremde Abhängigkeiten weiter nach ADR-0007 | angenommen |
 
 ---
@@ -331,7 +331,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | ID | Szenario | Messgröße / Ziel (zu validieren in Sprint 0) |
 |---|---|---|
 | Q-1 | 60-m²-Wohnung, ca. 4 min Video 1080p/4K, RTX 2060 | Begehbare Szene in **≤ 60 min** Gesamtlaufzeit |
-| Q-2 | Beliebige Stufe im Profil `low_vram_6gb` | Peak-VRAM **≤ 5,5 GB** |
+| Q-2 | Beliebige Stufe im Profil `low_vram_6gb` | Peak-VRAM **≤ 5,5 GiB** pro Prozess inkl. CUDA-Kontext |
 | Q-3 | Gut beleuchtete Räume, Aufnahme nach Checkliste | **≥ 90 %** der Keyframes registriert |
 | Q-4 | AprilTags (2 Stück) im Raum | Maßstabsfehler **≤ 3 %** |
 | Q-5 | Testset mit 20 platzierten Gegenständen | Gegenstand in Top-3-Treffern bei **≥ 70 %** |
@@ -355,7 +355,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | R-07 | Optische-Fluss-Sensoren liefern indoor schlechte Qualität | mittel | mittel | Sensorvergleich (Matek 3901-L0X vs. MicoAir MTF-01/02), Bodentextur, Licht |
 | R-08 | DSGVO/Haftung bei kommerzieller Nutzung | mittel | hoch | Anonymisierung, Einwilligung, Rechtsberatung vor Pilotkunden |
 | R-09 | Turing-Support-Ende in CUDA/PyTorch-Releases | niedrig | mittel | Versionen pinnen, Containerisierung, Monitoring der Release Notes |
-| R-13 | **Entwicklungs-GPU GTX 1080 (Pascal):** ab PyTorch 2.15 keine fertigen Pakete mehr, kein schnelles fp16 (keine Tensor Cores), gsplat-Kompilierung für sm_61 ungetestet | hoch | mittel | PyTorch ≤ 2.14 + cu126 pinnen, `TORCH_CUDA_ARCH_LIST="6.1;7.5"`, fp32-Fallback für Pascal, Machbarkeit im Spike US-004 prüfen; mittelfristig Ersatz durch Turing-oder-neuer-GPU einplanen |
+| R-13 | **Entwicklungs-GPU GTX 1060 6GB (Pascal, steuert den Bildschirm):** ab PyTorch 2.15 keine fertigen Pakete mehr, kein schnelles fp16 (keine Tensor Cores), gsplat-Kompilierung für sm_61 ungetestet | hoch | mittel | PyTorch ≤ 2.14 + cu126 pinnen, `TORCH_CUDA_ARCH_LIST="6.1;7.5"`, fp32-Fallback für Pascal, Machbarkeit im Spike US-004 prüfen; mittelfristig Ersatz durch Turing-oder-neuer-GPU einplanen |
 | R-10 | Propellerwind verschiebt leichte Gegenstände | mittel | niedrig | Flughöhe/-abstand, Hinweis im UI, Vorher-Bilder |
 | R-11 | Verfügbarkeit von Billigdrohnen (Tello eingestellt) | hoch | niedrig | Drohnen-Agnostik, Smartphone als Referenzquelle |
 | R-12 | Kapazität eines Einzelgründers | hoch | mittel | Strikte Priorisierung (MoSCoW), kleine Stories, Claude Code für Routinearbeit |

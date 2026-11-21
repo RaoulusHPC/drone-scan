@@ -8,17 +8,18 @@ Details: `docs/architektur.md` (arc42) · `docs/projektmanagement.md` · `docs/u
 
 1. **Lizenzen:** Nur Open Source. Bevorzugt MIT/BSD/Apache-2.0. GPL/AGPL nur als separater Prozess oder Container (OpenMVS, ArduPilot), nie in `src/` importieren.
    **Verboten:** alles mit „non-commercial“/research-only-Lizenz, z. B. Inria-`gaussian-splatting`-Code, DUSt3R/MASt3R, SuperPoint-Gewichte (stattdessen ALIKED + LightGlue). Bei Modellen zählt die Lizenz der **Gewichte**. Jede neue Abhängigkeit oder jedes Modell → `licenses/allowlist.yaml` bzw. `models.lock` prüfen; im Zweifel Subagent `license-auditor` fragen und den PO informieren.
-2. **VRAM:** Zielhardware RTX 2060, **6 GB**. Jeder GPU-Code braucht ein Profil `low_vram_6gb` und muss mit `DRONESCAN_VRAM_LIMIT_GB=5.5` laufen (wird in Tests über `torch.cuda.set_per_process_memory_fraction` erzwungen). GPU-Jobs laufen nie parallel.
+2. **VRAM (alle Werte in GiB):** Zielhardware RTX 2060, **6 GiB**. Budget pro Prozess: **≤ 5,5 GiB gesamt** (inkl. CUDA-Kontext). Jeder GPU-Code braucht ein Profil `low_vram_6gb` und muss mit `DRONESCAN_VRAM_LIMIT_GB=5.0` laufen (PyTorch-Allocator-Grenze, erzwungen über `torch.cuda.set_per_process_memory_fraction`; der CUDA-Kontext kommt hinzu). GPU-Jobs laufen nie parallel.
 3. **Offline & Datenschutz:** Zur Laufzeit keine Netzwerkzugriffe. Einzige Ausnahme ist `drone-scan models pull` (einmaliger, explizit gestarteter Modell-Download). Keine echten Wohnungsaufnahmen oder Gesichter in Git, Tests oder Logs. Testdaten nur aus `data/samples/` (eigene, freigegebene Aufnahmen).
 4. **Flugsicherheit:** Du sendest **niemals** Befehle an echte Drohnen. Flugcode wird ausschließlich gegen ArduPilot-SITL getestet. Echte Flüge startet nur der Mensch im eigenen Terminal (`--real-flight` plus Bestätigung). Ein Hook blockiert solche Aufrufe.
 5. **Keine großen Dateien in Git:** Videos, Frames und Modelle liegen in `workspace/` bzw. `data/` (gitignored). Beispiel-Clips über 20 MB nur per Git LFS.
 
 ## Hardware (ADR-0010)
 
-- **Du läufst auf dem Entwicklungsrechner mit GTX 1080** (8 GB, Pascal, `sm_61`). Ziel der Nutzer: RTX 2060 (6 GB, `sm_75`).
+- **Du läufst auf dem Entwicklungsrechner mit GTX 1060 6GB** (Pascal, `sm_61`, steuert auch den Bildschirm, ca. 1 GiB belegt). Ziel der Nutzer: RTX 2060 (6 GiB, `sm_75`).
+- **Die RTX 2070 SUPER im selben Rechner ist für ein anderes Projekt reserviert:** Nutzung nur nach vorheriger Zustimmung des POs für den konkreten Lauf **und** nur, wenn sie gerade frei ist (`nvidia-smi`). GPU-Läufe immer auf die GTX 1060 festlegen (`CUDA_DEVICE_ORDER=PCI_BUS_ID`, `CUDA_VISIBLE_DEVICES=0`; `make test-gpu` macht das).
 - PyTorch nur **< 2.15 mit CUDA 12.6** (`https://download.pytorch.org/whl/cu126`). Neuere CUDA-Builds unterstützen Pascal nicht. Nie auf cu128/cu13x „upgraden“.
 - CUDA-Erweiterungen/COLMAP immer für `6.1;7.5` bauen. Auf Pascal `fp32` statt fp16.
-- GPU-Tests immer mit `DRONESCAN_VRAM_LIMIT_GB=5.5`. Laufzeiten auf der 1080 sind nicht die Zielwerte.
+- GPU-Tests immer mit `DRONESCAN_VRAM_LIMIT_GB=5.0`. Laufzeiten auf der 1060 sind nicht die Zielwerte.
 
 ## Stack & Befehle
 
@@ -27,7 +28,7 @@ Python 3.12 + **uv** · FastAPI · Pydantic · Typer · pytest · ruff · mypy �
 ```bash
 make setup        # uv sync, pnpm install, pre-commit, docker images bauen
 make check        # ruff + mypy + pytest -m "not gpu and not bench" + Lizenz-Gate  ← vor jedem PR
-make test-gpu     # pytest -m gpu mit VRAM-Limit 5.5 GB
+make test-gpu     # pytest -m gpu auf der GTX 1060, Allocator-Limit 5.0 GiB
 make smoke        # Pipeline auf data/samples/kurz.mp4 (< 2 min)
 make bench        # Benchmarks auf Referenzräumen (langsam, nicht in CI)
 make viewer-dev   # Vite-Dev-Server für viewer/
