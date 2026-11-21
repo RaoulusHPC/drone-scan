@@ -145,6 +145,8 @@ Lizenz-Themen:          project = KAN AND labels = compliance
   4. Der PR ändert **nichts** unter `flight/`, an `CLAUDE.md`, `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik, die Schutzmechanismen von Claude Code oder dessen eigene Regeln (einschließlich dieser Self-Merge-Regel) betreffen.
 
   Den Jira-Status *Done* setzt weiterhin der PO. Nach dem Merge kommentiert Claude Code den Merge-Commit in der Story.
+- **CI (KAN-17):** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push und Pull Request `uv sync --locked` und `make check` aus. Zeitlimit: 10 min, die Actions sind auf Commit-SHAs gepinnt. GPU-, Bench- und SITL-Tests laufen nicht in der CI. SITL-Tests werden ohne `DRONESCAN_SITL=1` übersprungen und lokal mit `make test-sitl` ausgeführt.
+- **Branch-Schutz `main`:** Der Statuscheck **„make check“** ist Pflicht und gilt auch für Admins, damit ein roter PR nicht gemergt werden kann, auch nicht per Self-Merge. Eingerichtet per GitHub-API (`PUT /repos/RaoulusHPC/drone-scan/branches/main/protection`). Prüfen mit `gh api repos/RaoulusHPC/drone-scan/branches/main/protection`, ändern in GitHub unter Settings → Branches.
 - **Kontextpflege:** Eine Story pro Claude-Code-Sitzung. Bei langen Sitzungen kurz zusammenfassen bzw. neu starten.
 
 ---

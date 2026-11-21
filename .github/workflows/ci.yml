@@ -1,0 +1,29 @@
+# CI (KAN-17): runs `make check` (ruff, mypy --strict, CPU tests) on every push and PR.
+# GPU, bench and SITL tests are not run here (no GPU / simulator on hosted runners).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: make check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+      - name: Install Python 3.12 and locked dependencies
+        run: uv sync --locked
+      - name: make check
+        run: make check
