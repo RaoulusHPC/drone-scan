@@ -157,6 +157,13 @@ drone-scan <stufe> --scan <scan_dir> [--profile low_vram_6gb] [--force]
 
 Ist ein Manifest gültig (die Eingabe-Hashes und Parameter sind unverändert), wird die Stufe übersprungen (Cache).
 
+Umsetzung (KAN-21): Basisklasse `dronescan.common.stage.Stage` und `run_stage()`.
+- **Manifest:** Es wird immer atomar geschrieben, auch bei Fehlern, damit Status und `hints` für Server und UI vorliegen. Nur `status: ok` gilt als Cache. Der Cache-Schlüssel umfasst Stufenversion, Input-Hashes, Parameter (JSON-normalisiert) und Tool-Versionen. Eingaben müssen im Scan-Verzeichnis liegen; absolute Pfade werden aus Fehlertexten entfernt. Zusätzlich werden das Profil, `exit_code` und `error` festgehalten.
+- **GPU-Stufen** (`uses_gpu = True`): `run_stage()` setzt vor dem Lauf das VRAM-Limit (`common.gpu.apply_vram_limit`). `peak_vram_mb` stammt aus `torch.cuda.max_memory_reserved` und enthält damit noch nicht den CUDA-Kontext; die Messung pro Prozess folgt mit KAN-41.
+- **OOM** (`OutOfMemoryError`, „out of memory“, `MemoryError`) ergibt Exit 30 mit Abhilfe. Die automatische Wiederholung mit kleinerem Profil übernimmt die Job-Queue.
+- **CLI:** `register_stage(app, StageClass)` erzeugt `drone-scan <stufe> --scan --profile --force`.
+- **Fehlercodes:** siehe `docs/fehlercodes.md`.
+
 ### 5.3 Datenmodell / Artefakt-Layout
 
 ```text

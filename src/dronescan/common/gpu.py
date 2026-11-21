@@ -21,7 +21,12 @@ MIN_FP16_CAPABILITY = (7, 0)  # sm_70 (Volta) and newer; Pascal (sm_61) stays fp
 
 
 class GpuUnavailableError(RuntimeError):
-    """No usable PyTorch/CUDA setup for a GPU stage."""
+    """No usable PyTorch/CUDA setup for a GPU stage (``str()`` = cause + remedy)."""
+
+    def __init__(self, cause: str, remedy: str) -> None:
+        super().__init__(f"{cause} Abhilfe: {remedy}")
+        self.cause = cause
+        self.remedy = remedy
 
 
 def _import_torch() -> ModuleType:
@@ -29,9 +34,22 @@ def _import_torch() -> ModuleType:
         return importlib.import_module("torch")
     except ImportError as exc:
         raise GpuUnavailableError(
-            "PyTorch ist nicht installiert. Abhilfe: GPU-Abhängigkeiten installieren "
-            "(PyTorch < 2.15 mit CUDA 12.6, siehe ADR-0010)."
+            "PyTorch ist nicht installiert.",
+            "GPU-Abhängigkeiten installieren (PyTorch < 2.15 mit CUDA 12.6, siehe ADR-0010).",
         ) from exc
+
+
+def reset_peak_memory() -> None:
+    """Start a new peak measurement for the current device."""
+    _import_torch().cuda.reset_peak_memory_stats()
+
+
+def peak_reserved_mib() -> float:
+    """Peak memory reserved by PyTorch's allocator since the last reset (MiB).
+
+    Excludes the CUDA context; per-process totals via NVML follow with KAN-41.
+    """
+    return float(_import_torch().cuda.max_memory_reserved()) / 1024**2
 
 
 def apply_vram_limit(settings: Settings, device: int | None = None) -> float:
@@ -44,8 +62,8 @@ def apply_vram_limit(settings: Settings, device: int | None = None) -> float:
     torch = _import_torch()
     if not torch.cuda.is_available():
         raise GpuUnavailableError(
-            "Keine CUDA-GPU verfügbar. Abhilfe: NVIDIA-Treiber prüfen (nvidia-smi) bzw. "
-            "den Container mit '--gpus all' starten."
+            "Keine CUDA-GPU verfügbar.",
+            "NVIDIA-Treiber prüfen (nvidia-smi) bzw. den Container mit '--gpus all' starten.",
         )
     index = torch.cuda.current_device() if device is None else device
     total_bytes = int(torch.cuda.get_device_properties(index).total_memory)

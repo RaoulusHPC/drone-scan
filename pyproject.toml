@@ -9,6 +9,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "pydantic-settings>=2.6",
     "pyyaml>=6.0",
+    "structlog>=24.4",
     "typer>=0.15",
 ]
 
