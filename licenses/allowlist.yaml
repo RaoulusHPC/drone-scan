@@ -1,5 +1,5 @@
 # License allowlist (ADR-0007, ADR-0011, ADR-0012). Checked by `make license-gate` (part of `make check`/CI).
-# Changes to this file are always merged by the PO.
+# Changes to this file are never self-merged; the PM session merges after review (PR #14).
 
 # SPDX ids allowed for runtime and dev dependencies.
 licenses:
