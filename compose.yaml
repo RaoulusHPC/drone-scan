@@ -1,0 +1,38 @@
+# drone-scan containers (KAN-18). GPU jobs never run in parallel (CLAUDE.md rule 2).
+# Default GPU: device 0 = GTX 1060 on the dev machine. The RTX 2070 SUPER (device 1) is
+# reserved for another project and may only be used with the PO's prior consent.
+name: drone-scan
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["${DRONESCAN_GPU_DEVICE:-0}"]
+            capabilities: [gpu]
+
+services:
+  worker:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    image: drone-scan/worker:0.1.0
+    environment:
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      DRONESCAN_PROFILE: ${DRONESCAN_PROFILE:-low_vram_6gb}
+    volumes:
+      - ./workspace:/workspace
+      - ./data:/data:ro
+
+  colmap:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: docker/colmap.Dockerfile
+    image: drone-scan/colmap:4.2.1
+    environment:
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+    volumes:
+      - ./workspace:/workspace

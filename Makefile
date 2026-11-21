@@ -7,7 +7,7 @@ VRAM_LIMIT_GB ?= 5.0
 GPU_DEVICES ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format typecheck test check test-gpu test-sitl smoke bench viewer-dev
+.PHONY: help setup lint format typecheck test check test-gpu test-sitl docker-check smoke bench viewer-dev
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-12s %s\n", $$1, $$2}'
@@ -43,6 +43,10 @@ test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
 test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)
 	@# pytest exit code 5 = no tests collected (no SITL tests yet) -> not a failure
 	DRONESCAN_SITL=1 $(UV) run pytest -m sitl || [ $$? -eq 5 ]
+
+docker-check: ## GPU visible in the worker container? (expects e.g. (6, 1) on the GTX 1060)
+	docker compose run --rm worker python -W always -c \
+		"import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability())"
 
 smoke: ## Pipeline on data/samples/kurz.mp4
 	@echo "make smoke: noch nicht verfügbar – kommt mit den Pipeline-Stufen (M1)." >&2; exit 1
