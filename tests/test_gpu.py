@@ -5,8 +5,8 @@ CPU tests use a fake `torch` module; the `gpu` test uses the real one.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
-import os
 import sys
 import types
 from dataclasses import dataclass, field
@@ -22,11 +22,15 @@ GIB = 1024**3
 @dataclass
 class FakeCuda:
     available: bool = True
+    current: int = 0
     total_memory: int = 8 * GIB
     calls: list[tuple[float, int]] = field(default_factory=list)
 
     def is_available(self) -> bool:
         return self.available
+
+    def current_device(self) -> int:
+        return self.current
 
     def get_device_properties(self, device: int) -> types.SimpleNamespace:
         return types.SimpleNamespace(total_memory=self.total_memory)
@@ -39,8 +43,6 @@ class FakeCuda:
 def fake_cuda(monkeypatch: pytest.MonkeyPatch) -> FakeCuda:
     cuda = FakeCuda()
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=cuda))
-    monkeypatch.delenv("DRONESCAN_VRAM_LIMIT_GB", raising=False)
-    monkeypatch.delenv("DRONESCAN_PROFILE", raising=False)
     return cuda
 
 
@@ -63,13 +65,17 @@ def test_env_limit_sets_memory_fraction(
 
 
 def test_profile_limit_on_8gb_card(fake_cuda: FakeCuda) -> None:
-    """Given the low_vram_6gb profile (5.5 GB) on an 8 GiB development GPU,
-    When the limit is applied,
-    Then the fraction simulates the 6 GB target card.
+    """Given the low_vram_6gb profile on an 8 GiB development GPU,
+    When the limit is applied to the current device,
+    Then the fraction simulates the 6 GB target card on that device.
     """
-    fraction = apply_vram_limit(load_settings("low_vram_6gb"))
+    fake_cuda.current = 1
+    settings = load_settings("low_vram_6gb")
 
-    assert fraction == pytest.approx(5.5 / 8)
+    fraction = apply_vram_limit(settings)
+
+    assert fraction == pytest.approx(settings.vram_limit_gb / 8)
+    assert fake_cuda.calls[0][1] == 1
 
 
 def test_limit_above_card_size_is_clamped(fake_cuda: FakeCuda) -> None:
@@ -112,7 +118,7 @@ def test_missing_torch_raises_helpful_error(monkeypatch: pytest.MonkeyPatch) -> 
         (False, (7, 5), False),  # profile forbids fp16
     ],
 )
-def test_fp16_only_on_turing_or_newer(
+def test_fp16_only_on_sm70_or_newer(
     allow: bool, capability: tuple[int, int], expected: bool
 ) -> None:
     """Given a profile's allow_fp16 flag and the GPU compute capability,
@@ -134,14 +140,17 @@ def test_real_gpu_respects_limit() -> None:
     When the limit is applied and more memory is requested than allowed,
     Then PyTorch raises an out-of-memory error.
     """
-    import importlib
-
     torch = importlib.import_module("torch")
     if not torch.cuda.is_available():
         pytest.skip("no CUDA device")
-    limit_gb = float(os.environ.get("DRONESCAN_VRAM_LIMIT_GB", "5.5"))
+    settings = load_settings()
+    total = int(torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory)
+    # Request just above the limit but clearly below the card size, so only the limit can fail.
+    request = min(int((settings.vram_limit_gb + 0.25) * GIB), total - GIB // 4)
+    if request <= settings.vram_limit_gb * GIB:
+        pytest.skip("card too small to distinguish the limit from physical memory")
 
-    apply_vram_limit(load_settings())
+    apply_vram_limit(settings)
 
     with pytest.raises(torch.cuda.OutOfMemoryError):
-        torch.empty(int((limit_gb + 0.5) * GIB), dtype=torch.uint8, device="cuda")
+        torch.empty(request, dtype=torch.uint8, device="cuda")

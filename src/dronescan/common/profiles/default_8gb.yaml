@@ -1,12 +1,13 @@
-# Profile for 8 GB GPUs (e.g. GTX 1080 development machine).
+# Profile for 8 GB GPUs (e.g. RTX 2070 SUPER / GTX 1080 development machines).
+# 6.5 GiB leaves room for CUDA context and a display on the same card.
 # Stage values are provisional and get calibrated in spike KAN-19.
-vram_limit_gb: 7.5
+vram_limit_gb: 6.5
 gpu:
-  allow_fp16: true # used only on sm_70+; the GTX 1080 (sm_61) stays fp32
+  allow_fp16: true # used only on sm_70+; Pascal stays fp32
 sfm:
   max_image_edge_px: 2400
 splat:
   max_iterations: 30000
-  max_gaussians: 3000000
+  max_gaussians: 2500000
 search:
   detector_batch_size: 8

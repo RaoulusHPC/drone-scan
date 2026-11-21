@@ -12,7 +12,7 @@ import typer
 from pydantic import ValidationError
 
 from dronescan import __version__
-from dronescan.common.config import ProfileError, load_settings
+from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 
 app = typer.Typer(
     name="drone-scan",
@@ -57,8 +57,8 @@ def show_config(
     try:
         settings = load_settings(profile)
     except ProfileError as exc:
-        raise typer.BadParameter(str(exc), param_hint="--profile") from exc
+        raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
     except ValidationError as exc:
-        typer.echo(f"Ungültige Konfiguration:\n{exc}", err=True)
+        typer.echo(describe_validation_error(exc, profile), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(settings.model_dump_json(indent=2))

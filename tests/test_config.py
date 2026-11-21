@@ -15,20 +15,6 @@ from dronescan.common.config import (
     load_settings,
 )
 
-ENV_VARS = [
-    "DRONESCAN_PROFILE",
-    "DRONESCAN_VRAM_LIMIT_GB",
-    "DRONESCAN_SPLAT__MAX_GAUSSIANS",
-    "DRONESCAN_GPU__ALLOW_FP16",
-    "DRONESCAN_UNKNOWN_KEY",
-]
-
-
-@pytest.fixture(autouse=True)
-def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-
 
 def write_profile(directory: Path, name: str, body: str) -> Path:
     path = directory / f"{name}.yaml"
@@ -62,12 +48,13 @@ def test_shipped_profiles_are_available() -> None:
 def test_default_profile_respects_6gb_budget() -> None:
     """Given no profile argument and no environment,
     When the settings are loaded,
-    Then the low_vram_6gb profile with a 5.5 GB limit is used (Q-2).
+    Then the low_vram_6gb profile is used and leaves headroom for the CUDA context
+    below the 5.5 GB peak budget (Q-2).
     """
     settings = load_settings()
 
     assert settings.profile == "low_vram_6gb"
-    assert settings.vram_limit_gb == pytest.approx(5.5)
+    assert settings.vram_limit_gb <= 5.0
 
 
 def test_default_8gb_profile_has_larger_limits() -> None:
@@ -80,7 +67,7 @@ def test_default_8gb_profile_has_larger_limits() -> None:
 
     assert high.profile == "default_8gb"
     assert high.vram_limit_gb > low.vram_limit_gb
-    assert high.vram_limit_gb <= 8.0
+    assert high.vram_limit_gb <= 7.0  # display + CUDA context on an 8 GB card
     assert high.splat.max_gaussians >= low.splat.max_gaussians
     assert high.sfm.max_image_edge_px >= low.sfm.max_image_edge_px
 
@@ -105,7 +92,7 @@ def test_profile_argument_wins_over_environment(monkeypatch: pytest.MonkeyPatch)
     settings = load_settings("low_vram_6gb")
 
     assert settings.profile == "low_vram_6gb"
-    assert settings.vram_limit_gb == pytest.approx(5.5)
+    assert settings.vram_limit_gb < load_settings("default_8gb").vram_limit_gb
 
 
 def test_vram_limit_overridden_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,6 +163,17 @@ def test_unknown_key_in_profile_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match="vram_limt_gb"):
         load_settings("typo", profiles_dir=tmp_path)
+
+
+def test_yaml_syntax_error_is_explained(tmp_path: Path) -> None:
+    """Given a profile file with broken YAML syntax,
+    When it is loaded,
+    Then a ProfileError names the profile and the remedy instead of a traceback.
+    """
+    write_profile(tmp_path, "syntax", "vram_limit_gb: [5.0\n")
+
+    with pytest.raises(ProfileError, match=r"(?s)syntax.*Abhilfe"):
+        load_settings("syntax", profiles_dir=tmp_path)
 
 
 def test_profile_must_be_a_mapping(tmp_path: Path) -> None:
