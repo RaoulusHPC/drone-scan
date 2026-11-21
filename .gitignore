@@ -1,7 +1,7 @@
-workspace/
+/workspace/
 data/*
 !data/samples/
-models/
+/models/
 *.pt
 *.ckpt
 .env
@@ -9,3 +9,17 @@ models/
 __pycache__/
 node_modules/
 .claude/settings.local.json
+
+# Model weights (CLAUDE.md rule 5; models are pulled via `drone-scan models pull`)
+*.pth
+*.safetensors
+*.onnx
+*.engine
+
+# Python tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+/build/
+*.egg-info/
