@@ -1,0 +1,20 @@
+# Keep scans, private recordings and large files out of the build context (CLAUDE.md rules 3, 5).
+.git
+.venv
+workspace
+data
+models
+**/__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+dist
+build
+.env
+.claude
+node_modules
+docs
+*.mp4
+*.pt
+*.pth
+*.onnx
