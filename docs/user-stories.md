@@ -3,7 +3,7 @@
 > Generiert aus `backlog/backlog.yaml` mit `tools/backlog_export.py` – **nicht von Hand bearbeiten**.
 > Führendes System für Status und Sprints ist **Jira (Projekt „DRN“ (Schlüssel `KAN`))**. Priorität: MoSCoW → Jira (Must=Highest, Should=High, Could=Medium).
 
-**Umfang:** 12 Epics · 64 Stories/Tasks · 284 Story Points
+**Umfang:** 12 Epics · 65 Stories/Tasks · 287 Story Points
 
 ## Personas
 
@@ -20,7 +20,7 @@
 | Meilenstein | Stories | SP | Must | Should | Could |
 |---|---|---|---|---|---|
 | M0 Fundament & Spikes | 8 | 27 | 8 | 0 | 0 |
-| M1 MVP „Video → Begehung“ | 20 | 76 | 12 | 7 | 1 |
+| M1 MVP „Video → Begehung“ | 21 | 79 | 12 | 8 | 1 |
 | M2 Gegenstandssuche | 6 | 28 | 4 | 1 | 1 |
 | M3 Drohnen-Erfassung | 9 | 41 | 3 | 3 | 3 |
 | M4 Präsentationsreife | 13 | 57 | 4 | 5 | 4 |
@@ -30,7 +30,7 @@
 
 | Epic | Titel | Stories | SP |
 |---|---|---|---|
-| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 8 | 25 |
+| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 9 | 28 |
 | EP-02 / KAN-5 | Erfassung & Import | 5 | 17 |
 | EP-03 / KAN-6 | Frame-Aufbereitung & Qualitätsprüfung | 3 | 11 |
 | EP-04 / KAN-7 | Rekonstruktion: Kameraposen, Maßstab, Zusammenführung | 5 | 31 |
@@ -130,6 +130,19 @@ Als **Entwickler (PO + Claude Code)** möchte ich Atlassian-MCP, Skills und Suba
 - [ ] `.mcp.json` verbunden, `/mcp` authentifiziert; Claude Code kann eine KAN-Story lesen und kommentieren.
 - [ ] Hook `block_real_flight.py` blockiert Testbefehl mit `--real-flight` nachweislich (Exit 2).
 - [ ] Board-Spalten und Labels gemäß docs/projektmanagement.md angelegt.
+
+### US-065 / KAN-80: GPU-Lock im Stufen-Runner: GPU-Jobs von worker und colmap serialisieren
+
+`Story` · **Should** · 3 SP · M1 MVP „Video → Begehung“ · Labels: infra · Abhängig von: US-003 / KAN-18, US-006 / KAN-21
+
+Als **Entwickler (PO + Claude Code)** möchte ich dass GPU-Stufen nie gleichzeitig laufen, damit die Regel „GPU-Jobs laufen nie parallel“ (CLAUDE.md, Regel 2) technisch erzwungen ist und das 6-GiB-Budget hält.
+
+**Akzeptanzkriterien**
+
+- [ ] Gegeben zwei GPU-Stufen werden gleichzeitig gestartet, wenn die erste läuft, dann wartet die zweite auf einen gemeinsamen Lock. Alternativ bricht sie mit einer verständlichen Meldung ab, die Abhilfe nennt.
+- [ ] Der Lock funktioniert über Container-Grenzen hinweg, z. B. als Lock-Datei in einem gemeinsam gemounteten Verzeichnis, und wird bei einem Absturz freigegeben (kein Deadlock).
+- [ ] Der Stufen-Runner aus KAN-21 nutzt den Lock für alle Stufen mit GPU-Bedarf.
+- [ ] Es gibt CPU-Tests für Lock, Warten und Freigabe nach Absturz.
 
 ### US-064 / KAN-79: Git LFS für Beispielclips
 

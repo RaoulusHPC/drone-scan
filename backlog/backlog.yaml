@@ -220,6 +220,24 @@ stories:
     labels: [infra]
     deps: [US-011]
 
+  - id: US-065
+    epic: EP-01
+    type: Story
+    title: "GPU-Lock im Stufen-Runner: GPU-Jobs von worker und colmap serialisieren"
+    as: P5
+    want: "dass GPU-Stufen nie gleichzeitig laufen"
+    so: "die Regel „GPU-Jobs laufen nie parallel“ (CLAUDE.md, Regel 2) technisch erzwungen ist und das 6-GiB-Budget hält"
+    ac:
+      - "Gegeben zwei GPU-Stufen werden gleichzeitig gestartet, wenn die erste läuft, dann wartet die zweite auf einen gemeinsamen Lock. Alternativ bricht sie mit einer verständlichen Meldung ab, die Abhilfe nennt."
+      - "Der Lock funktioniert über Container-Grenzen hinweg, z. B. als Lock-Datei in einem gemeinsam gemounteten Verzeichnis, und wird bei einem Absturz freigegeben (kein Deadlock)."
+      - "Der Stufen-Runner aus KAN-21 nutzt den Lock für alle Stufen mit GPU-Bedarf."
+      - "Es gibt CPU-Tests für Lock, Warten und Freigabe nach Absturz."
+    prio: Should
+    sp: 3
+    ms: m1
+    labels: [infra]
+    deps: [US-003, US-006]
+
   # ---------------- EP-02 Erfassung & Import ----------------
   - id: US-013
     epic: EP-02
