@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -84,3 +85,44 @@ def test_console_script_is_installed() -> None:
 
     assert result.returncode == 0
     assert "drone-scan" in result.stdout
+
+
+def test_config_command_shows_effective_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given the default_8gb profile and a VRAM override in the environment,
+    When `drone-scan config --profile default_8gb` runs,
+    Then the effective settings are printed as JSON including the override.
+    """
+    monkeypatch.setenv("DRONESCAN_VRAM_LIMIT_GB", "5.5")
+
+    result = CliRunner().invoke(app, ["config", "--profile", "default_8gb"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["profile"] == "default_8gb"
+    assert data["vram_limit_gb"] == 5.5
+
+
+def test_config_command_invalid_env_value_explained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given DRONESCAN_VRAM_LIMIT_GB=-1,
+    When `drone-scan config` runs,
+    Then it exits with code 1 and names the field, the env variable and a remedy in German.
+    """
+    monkeypatch.setenv("DRONESCAN_VRAM_LIMIT_GB", "-1")
+
+    result = CliRunner().invoke(app, ["config"])
+
+    assert result.exit_code == 1
+    assert "Ungültige Konfiguration" in result.output
+    assert "DRONESCAN_VRAM_LIMIT_GB" in result.output
+    assert "Abhilfe" in result.output
+
+
+def test_config_command_unknown_profile_exits_2() -> None:
+    """Given an unknown profile name,
+    When `drone-scan config --profile nope` runs,
+    Then it exits with code 2 and names the available profiles.
+    """
+    result = CliRunner().invoke(app, ["config", "--profile", "nope"])
+
+    assert result.exit_code == 2
+    assert "low_vram_6gb" in result.output

@@ -9,8 +9,10 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 
 from dronescan import __version__
+from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 
 app = typer.Typer(
     name="drone-scan",
@@ -39,3 +41,24 @@ def main(
     ] = False,
 ) -> None:
     """Lokale Pipeline für 3D-Scans von Innenräumen."""
+
+
+@app.command("config")
+def show_config(
+    profile: Annotated[
+        str | None,
+        typer.Option(
+            "--profile",
+            help="VRAM-Profil, z. B. low_vram_6gb oder default_8gb (Standard: DRONESCAN_PROFILE).",
+        ),
+    ] = None,
+) -> None:
+    """Wirksame Konfiguration (Profil + Umgebungsvariablen) als JSON anzeigen."""
+    try:
+        settings = load_settings(profile)
+    except ProfileError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
+    except ValidationError as exc:
+        typer.echo(describe_validation_error(exc, profile), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(settings.model_dump_json(indent=2))

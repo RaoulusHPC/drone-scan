@@ -257,6 +257,11 @@ flowchart LR
 ### 8.1 VRAM-Budget
 - Profile `low_vram_6gb` (Standard) und `default_8gb`. Sie legen fest: max. Bildkante für SfM bzw. Training, Anzahl Iterationen, Obergrenze für Gaussians, Batchgrößen der Detektoren, fp16.
 - Harte Grenze in Tests: `torch.cuda.set_per_process_memory_fraction`. Dadurch wird der Zielrechner auch auf stärkeren Entwicklungsrechnern simuliert.
+- Umsetzung (KAN-20):
+  - **Profile:** liegen als YAML in `src/dronescan/common/profiles/`. `common.config.load_settings()` lädt sie mit dieser Priorität: Umgebungsvariable `DRONESCAN_*` > Profil. Verschachtelte Werte werden mit `__` angesprochen, z. B. `DRONESCAN_SPLAT__MAX_GAUSSIANS`. Das Profil wählt `--profile`, sonst `DRONESCAN_PROFILE`, sonst `low_vram_6gb`.
+  - **VRAM-Grenze:** `DRONESCAN_VRAM_LIMIT_GB` (in GiB) überschreibt `vram_limit_gb` (Profil `low_vram_6gb`: 5,0 GiB für den PyTorch-Allocator; CUDA-Kontext kommt hinzu, Ziel ≤ 5,5 GB gesamt). `common.gpu.apply_vram_limit()` setzt daraus beim Start jeder GPU-Stufe den Speicheranteil. Der CUDA-Kontext selbst ist nicht begrenzt, deshalb bleibt Puffer unter 6 GB.
+  - **Präzision:** `common.gpu.use_fp16()` erlaubt fp16 nur ab sm_70. Auf Pascal läuft immer fp32 (ADR-0010).
+  - **Anzeige:** `drone-scan config [--profile …]` zeigt die wirksame Konfiguration.
 - Bei OOM wird einmal automatisch mit verkleinertem Profil wiederholt. `peak_vram_mb` steht im Manifest.
 
 ### 8.2 Aufnahmequalität (Capture Guidance)
