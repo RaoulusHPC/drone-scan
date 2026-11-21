@@ -25,10 +25,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 
-WORKDIR /app
-COPY pyproject.toml uv.lock README.md LICENSE ./
-COPY src ./src
-RUN uv sync --locked --no-dev --no-editable --python /usr/bin/python3.12
+# Order matters for the layer cache: PyTorch (~2.5 GB) and the gsplat nvcc build do not depend
+# on src/, so they come first; edits under src/ only re-run the last `uv sync`.
+RUN uv venv /opt/venv --python /usr/bin/python3.12
 
 # PyTorch < 2.15 with CUDA 12.6: the last wheels that still support Pascal (ADR-0010).
 RUN uv pip install --python /opt/venv/bin/python \
@@ -51,7 +50,22 @@ RUN uv pip install --python /opt/venv/bin/python setuptools wheel ninja \
     && mkdir -p /opt/notices/gsplat \
     && cp LICENSE /opt/notices/gsplat/LICENSE \
     && cp gsplat/cuda/csrc/third_party/glm/copying.txt /opt/notices/gsplat/glm.copying.txt \
+    && cp /tmp/gsplat-pascal.patch /opt/notices/gsplat/MODIFICATIONS.patch \
     && rm -rf /tmp/gsplat /tmp/gsplat-pascal.patch
+
+# AC: gsplat must contain device code for both architectures (fails the build otherwise).
+RUN so="$(find /opt/venv -path '*gsplat*' -name 'csrc*.so' | head -n 1)" \
+    && test -n "$so" \
+    && cuobjdump --list-elf "$so" > /tmp/gsplat-elf.txt \
+    && grep -q 'sm_61' /tmp/gsplat-elf.txt \
+    && grep -q 'sm_75' /tmp/gsplat-elf.txt \
+    && rm /tmp/gsplat-elf.txt
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
+# --inexact keeps PyTorch and gsplat, which are not part of uv.lock.
+RUN uv sync --locked --no-dev --no-editable --inexact --python /usr/bin/python3.12
 
 # ---------- runtime stage ----------
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime

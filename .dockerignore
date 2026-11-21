@@ -10,3 +10,11 @@ models
 .pytest_cache
 dist
 build
+.env
+.claude
+node_modules
+docs
+*.mp4
+*.pt
+*.pth
+*.onnx

@@ -29,6 +29,22 @@ def compose() -> dict[str, Any]:
     return data
 
 
+def image_name(service: str) -> str:
+    return str(compose()["services"][service]["image"])
+
+
+def require_image(service: str) -> None:
+    """Skip a GPU test if the image is not built (`docker compose run` would silently build it
+    and the long timeouts would then look like a test failure)."""
+    found = subprocess.run(
+        ["docker", "image", "inspect", image_name(service)],
+        capture_output=True,
+        check=False,
+    )
+    if found.returncode != 0:
+        pytest.skip(f"image {image_name(service)} not built (docker compose build {service})")
+
+
 def arg_value(dockerfile: Path, name: str) -> str:
     match = re.search(rf"^ARG {name}=(\S+)", dockerfile.read_text(encoding="utf-8"), re.MULTILINE)
     assert match, f"ARG {name} missing in {dockerfile.name}"
@@ -172,6 +188,31 @@ def test_compose_defines_worker_and_colmap_on_gtx_1060() -> None:
         assert services[name]["runtime"] == "nvidia"
 
 
+def test_compose_sets_vram_limit_and_image_names() -> None:
+    """Given compose.yaml,
+    When the worker service is read,
+    Then GPU code starts with the 5.0 GiB allocator limit by default (CLAUDE.md rule 2) and
+    the image names match what the GPU tests and the README use.
+    """
+    services = compose()["services"]
+    assert services["worker"]["environment"]["DRONESCAN_VRAM_LIMIT_GB"] == (
+        "${DRONESCAN_VRAM_LIMIT_GB:-5.0}"
+    )
+    assert image_name("worker") == "drone-scan/worker:0.1.0"
+    assert image_name("colmap") == f"drone-scan/colmap:{arg_value(COLMAP, 'COLMAP_VERSION')}"
+
+
+def test_dockerfiles_check_device_code_for_both_architectures() -> None:
+    """Given both Dockerfiles,
+    When the images are built,
+    Then a build step lists the device code (cuobjdump) and fails without sm_61 and sm_75 (AC 1).
+    """
+    for dockerfile in (WORKER, COLMAP):
+        text = dockerfile.read_text(encoding="utf-8")
+        assert "cuobjdump --list-elf" in text
+        assert "grep -q 'sm_61'" in text and "grep -q 'sm_75'" in text
+
+
 def test_compose_mounts_workspace_and_data() -> None:
     """Given the worker service,
     When it runs,
@@ -198,6 +239,7 @@ def test_worker_sees_gtx_1060_without_warning() -> None:
     When `docker compose run worker python -c '...get_device_capability()'` runs,
     Then it prints (6, 1) and PyTorch emits no compatibility warning (AC 2).
     """
+    require_image("worker")
     cmd = [
         "docker",
         "compose",
@@ -214,7 +256,9 @@ def test_worker_sees_gtx_1060_without_warning() -> None:
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith("(6, 1)")
-    assert "warn" not in result.stderr.lower()
+    # PyTorch's own compatibility warning; `docker compose` may print unrelated WARN lines
+    assert "UserWarning" not in result.stderr
+    assert "not compatible" not in result.stderr.lower()
 
 
 @pytest.mark.gpu
@@ -222,9 +266,12 @@ def test_worker_sees_gtx_1060_without_warning() -> None:
 def test_patched_gsplat_gradients_match_reference_on_gtx_1060() -> None:
     """Given the worker image with the Pascal-patched gsplat and the GTX 1060 (device 0),
     When the projection backward pass (3DGS/2DGS, fused/packed) runs on synthetic data,
-    Then its gradients match gsplat's PyTorch reference and packed matches fused within
-    tolerances, under the 5.0 GiB allocator limit (ADR-0010, CLAUDE.md rule 2).
+    Then its gradients match a float64 PyTorch reference (relative L2 error, limits per
+    gradient, wider for the approximate 2DGS gradients) and packed matches fused, under the
+    5.0 GiB allocator limit (ADR-0010, CLAUDE.md rule 2). `peak_vram_mb` is allocator memory
+    only (no CUDA context), the allocator limit is what enforces the budget here.
     """
+    require_image("worker")
     cmd = [
         "docker",
         "compose",
@@ -259,9 +306,9 @@ def test_patched_gsplat_gradients_match_reference_on_gtx_1060() -> None:
 def test_colmap_binary_starts_with_all_libraries() -> None:
     """Given the built colmap image (needs the image, not the GPU: marked gpu like the others),
     When the colmap binary's dynamic libraries are resolved and `colmap help` runs,
-    Then no library is missing and it prints COLMAP 4.2.1 with CUDA, SiftGPU's host
-    (CUDA build) and no LSD symbols.
+    Then no library is missing and it prints COLMAP 4.2.1 built with CUDA.
     """
+    require_image("colmap")
     ldd = subprocess.run(
         [
             "docker",
@@ -269,7 +316,7 @@ def test_colmap_binary_starts_with_all_libraries() -> None:
             "--rm",
             "--entrypoint",
             "sh",
-            "drone-scan/colmap:4.2.1",
+            image_name("colmap"),
             "-c",
             "ldd /usr/local/bin/colmap",
         ],
@@ -320,6 +367,7 @@ def test_colmap_extracts_sift_features_on_the_gpu(tmp_path: Path) -> None:
     When SIFT features are extracted from a synthetic image with use_gpu=1,
     Then the GPU extractor runs and finds features, i.e. the sm_61 kernels work.
     """
+    require_image("colmap")
     (tmp_path / "images").mkdir()
     _synthetic_png(tmp_path / "images" / "synth.png")
     cmd = [

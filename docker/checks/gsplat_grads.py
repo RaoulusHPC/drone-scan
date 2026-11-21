@@ -30,8 +30,12 @@ WIDTH = HEIGHT = 256
 
 
 def limit_vram() -> None:
+    """PyTorch allocator limit (CLAUDE.md rule 2). Covers the caching allocator only, not the
+    CUDA context, so `peak_vram_mb` below is allocator memory, not total process memory."""
     limit_gb = float(os.environ.get("DRONESCAN_VRAM_LIMIT_GB", "5.0"))
     total = torch.cuda.get_device_properties(0).total_memory
+    if limit_gb * 1024**3 > total:
+        print(f"warning: device has less than {limit_gb} GiB, limit not applied", file=sys.stderr)
     torch.cuda.set_per_process_memory_fraction(min(1.0, limit_gb * 1024**3 / total), 0)
 
 

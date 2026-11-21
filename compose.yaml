@@ -1,6 +1,10 @@
 # drone-scan containers (KAN-18). GPU jobs never run in parallel (CLAUDE.md rule 2).
+# Start single jobs with `docker compose run --rm <service> ...`, NOT `docker compose up`:
+# worker and colmap reserve the same GPU and nothing here serializes them. Serializing the
+# pipeline stages (GPU lock) belongs to the stage runner. Both services are build-only for now.
 # Default GPU: device 0 = GTX 1060 on the dev machine. The RTX 2070 SUPER (device 1) is
-# reserved for another project and may only be used with the PO's prior consent.
+# reserved for another project: DRONESCAN_GPU_DEVICE=1 may only be set with the PO's prior
+# consent for that run, and only if the card is free (`nvidia-smi`). Nothing enforces this here.
 name: drone-scan
 
 # `runtime: nvidia` (registered by `nvidia-ctk runtime configure`) is needed on some hosts, e.g.
@@ -26,6 +30,7 @@ services:
     environment:
       CUDA_DEVICE_ORDER: PCI_BUS_ID
       DRONESCAN_PROFILE: ${DRONESCAN_PROFILE:-low_vram_6gb}
+      DRONESCAN_VRAM_LIMIT_GB: ${DRONESCAN_VRAM_LIMIT_GB:-5.0}
     volumes:
       - ./workspace:/workspace
       - ./data:/data:ro

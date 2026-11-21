@@ -16,6 +16,7 @@ setup: ## Create Python 3.12 env (uv.lock), install pre-commit hooks
 	$(UV) sync --locked
 	$(UV) run pre-commit install
 	@if [ -f viewer/package.json ]; then cd viewer && pnpm install; else echo "viewer/ fehlt noch – pnpm install übersprungen"; fi
+	@mkdir -p workspace data
 	@if [ -f docker-compose.yml ] || [ -f compose.yaml ]; then docker compose build; else echo "Docker-Compose-Datei fehlt noch (KAN-18) – docker build übersprungen"; fi
 
 lint: ## ruff lint + format check
@@ -47,6 +48,8 @@ test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)
 	DRONESCAN_SITL=1 $(UV) run pytest -m sitl || [ $$? -eq 5 ]
 
 docker-check: ## GPU visible in the worker container? (expects e.g. (6, 1) on the GTX 1060)
+	@# create the bind-mount directories as the current user (Docker would create them as root)
+	@mkdir -p workspace data
 	docker compose run --rm worker python -W always -c \
 		"import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability())"
 

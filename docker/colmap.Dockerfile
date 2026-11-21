@@ -37,6 +37,11 @@ RUN git clone --branch "${COLMAP_VERSION}" --depth 1 https://github.com/colmap/c
         -DFETCH_ONNX=OFF \
         -DLSD_ENABLED=OFF \
     && cmake --build /colmap/build --target install
+# AC: COLMAP must contain device code for both architectures (fails the build otherwise).
+RUN cuobjdump --list-elf /colmap-install/bin/colmap > /tmp/colmap-elf.txt \
+    && grep -q 'sm_61' /tmp/colmap-elf.txt \
+    && grep -q 'sm_75' /tmp/colmap-elf.txt \
+    && rm /tmp/colmap-elf.txt
 # License texts of COLMAP and its bundled/fetched third-party code (ADR-0007).
 RUN mkdir -p /colmap-notices/thirdparty \
     && cp /colmap/COPYING.txt /colmap-notices/ \
@@ -44,7 +49,8 @@ RUN mkdir -p /colmap-notices/thirdparty \
          if [ -f "$f" ]; then \
            name="$(basename "$(dirname "$f")")"; cp "$f" "/colmap-notices/thirdparty/${name%-src}.LICENSE"; \
          fi; \
-       done
+       done \
+    && rm -f /colmap-notices/thirdparty/LSD.LICENSE  # LSD (AGPL) is disabled, not compiled in
 
 # ---------- runtime stage ----------
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime
