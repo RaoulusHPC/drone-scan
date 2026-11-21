@@ -110,3 +110,25 @@ def test_sitl_tests_run_with_simulator(
     monkeypatch.setenv("DRONESCAN_SITL", "1")
 
     sitl_project.runpytest().assert_outcomes(passed=1)
+
+
+def test_sitl_tests_keep_dronescan_env(
+    sitl_project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given DRONESCAN_SITL=1,
+    When a `sitl` test runs,
+    Then the env isolation fixture keeps the DRONESCAN_* variables visible to it.
+    """
+    sitl_project.makepyfile(
+        test_sitl_env="""
+import os
+import pytest
+
+@pytest.mark.sitl
+def test_sees_env():
+    assert os.environ["DRONESCAN_SITL"] == "1"
+"""
+    )
+    monkeypatch.setenv("DRONESCAN_SITL", "1")
+
+    sitl_project.runpytest().assert_outcomes(passed=2)
