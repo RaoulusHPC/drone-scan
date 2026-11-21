@@ -86,14 +86,14 @@
 | **Labels** | `m0` … `m5` (Meilenstein), Komponenten-Labels `capture`, `ingest`, `sfm`, `recon`, `search`, `viewer`, `server`, `privacy`, `export`, `flight`, `infra`, `compliance`, `hardware`; `spike`, `claude-code` |
 | **Releases / Versionen** | `M0-Fundament`, `M1-MVP`, `M2-Suche`, `M3-Drohne`, `M4-Präsentation`, `M5-Flug` |
 | **Board-Spalten** | Backlog → Ready → In Progress → In Review (PR offen) → Done |
-| **Jira-Status (deutsche UI)** | Board „KAN board“ (ID 2, team-managed). Spalte → Status: Backlog/To Do → *Zu erledigen*, Ready → *Ready* (Stand 21.11.2026 noch vom PO anzulegen; bis dahin schlägt der JQL-Filter „Bereit für Claude Code“ fehl), In Progress → *In Arbeit*, In Review → *Wird überprüft*, Done → *Fertig*. Transitions immer über den **Zielstatus** auswählen, nicht über den Spaltennamen |
+| **Jira-Status (deutsche UI)** | Board „KAN board“ (ID 2, team-managed). Spalte → Status: Backlog/To Do → *Zu erledigen*, Ready → *Bereit*, In Progress → *In Arbeit*, In Review → *Wird überprüft*, Done → *Fertig*. Transitions immer über den **Zielstatus** auswählen, nicht über den Spaltennamen |
 | **Verknüpfungen** | „blocks / is blocked by“ für die Abhängigkeiten aus dem Backlog |
 
 **Nützliche JQL-Filter**
 
 ```text
 Aktueller Sprint:       project = KAN AND sprint in openSprints() ORDER BY rank
-Bereit für Claude Code: project = KAN AND status = "Ready" AND labels = claude-code ORDER BY priority DESC, rank
+Bereit für Claude Code: project = KAN AND status = "Bereit" AND labels = claude-code ORDER BY priority DESC, rank
 Meilenstein M1 offen:   project = KAN AND labels = m1 AND statusCategory != Done
 Blockiert:              project = KAN AND issueLinkType = "is blocked by" AND statusCategory != Done
 Lizenz-Themen:          project = KAN AND labels = compliance
@@ -125,7 +125,7 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 ## 6. Arbeitsablauf mit Claude Code (pro Story)
 
 ```text
-1. Jira:        Story KAN-xx ist "Ready" (PO)
+1. Jira:        Story KAN-xx ist "Bereit" (Spalte Ready, PO)
 2. Claude Code: /story KAN-xx  → liest Story via MCP, Plan Mode, Plan als Jira-Kommentar
 3. PO:          Plan freigeben oder korrigieren
 4. Claude Code: Branch feat/KAN-xx-kurzname, Tests zuerst (Akzeptanzkriterien), Implementierung
