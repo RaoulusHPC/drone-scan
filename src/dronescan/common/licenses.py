@@ -1,8 +1,10 @@
-"""License gate (KAN-23, ADR-0007): checks Python and npm dependencies, models.lock and
-imports in src/ against licenses/allowlist.yaml and licenses/denylist.yaml.
+"""License gate (KAN-23, ADR-0007, ADR-0012): checks Python and npm dependencies, models.lock
+and imports in src/ against licenses/allowlist.yaml and licenses/denylist.yaml.
 
 Run offline with ``python -m dronescan.common.licenses [repo_root]`` (``make license-gate``,
-part of ``make check`` and CI). Exit 1 on any violation.
+part of ``make check`` and CI). Exit 1 on any violation. Non-commercial/research-only
+components are allowed (ADR-0012) but reported with severity ``nc`` so they can be found
+completely before any redistribution or commercial use.
 
 The Python check reads the *installed* environment (CI: ``uv sync --locked``) and uses
 ``uv.lock`` for the runtime/dev scope; locked packages that are not installed are reported
@@ -14,6 +16,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterable, Mapping
@@ -31,7 +34,7 @@ from dronescan.common.models_lock import load_models_lock
 
 Kind = Literal["python", "npm", "model"]
 Scope = Literal["runtime", "dev"]
-Severity = Literal["error", "warning"]
+Severity = Literal["error", "warning", "nc"]
 
 ROOT_PROJECT = "drone-scan"
 _MAX_ID_LENGTH = 80  # longer License fields are free text, not an SPDX id/expression
@@ -62,7 +65,10 @@ class Policy:
     allowed: frozenset[str]
     data_allowed: frozenset[str]
     copyleft: frozenset[str]
-    patterns: tuple[re.Pattern[str], ...]
+    nc_patterns: tuple[re.Pattern[str], ...]
+    nc_packages: Mapping[str, str]
+    nc_models: tuple[tuple[re.Pattern[str], str], ...]
+    nc_image_components: tuple[tuple[str, str], ...]  # (name, reason), not visible to the gate
     denied_packages: Mapping[str, str]
     denied_models: tuple[tuple[re.Pattern[str], str], ...]
     container_only: frozenset[str]
@@ -96,6 +102,10 @@ def _warning(subject: str, message: str) -> Finding:
     return Finding(severity="warning", subject=subject, message=message)
 
 
+def _nc(subject: str, message: str) -> Finding:
+    return Finding(severity="nc", subject=subject, message=message)
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -110,10 +120,22 @@ def load_policy(licenses_dir: Path) -> Policy:
         allowed=frozenset(allow.get("licenses", [])),
         data_allowed=frozenset(allow.get("data_licenses", [])),
         copyleft=frozenset(deny.get("copyleft", [])),
-        patterns=tuple(re.compile(p, re.IGNORECASE) for p in deny.get("license_patterns", [])),
-        denied_packages={normalize_name(e["name"]): e["reason"] for e in deny.get("packages", [])},
+        nc_patterns=tuple(
+            re.compile(p, re.IGNORECASE) for p in deny.get("nc_license_patterns") or []
+        ),
+        nc_packages={normalize_name(e["name"]): e["reason"] for e in deny.get("nc_packages") or []},
+        nc_models=tuple(
+            (re.compile(e["pattern"], re.IGNORECASE), e["reason"])
+            for e in deny.get("nc_models") or []
+        ),
+        nc_image_components=tuple(
+            (e["name"], e["reason"]) for e in deny.get("nc_image_components") or []
+        ),
+        denied_packages={
+            normalize_name(e["name"]): e["reason"] for e in deny.get("packages") or []
+        },
         denied_models=tuple(
-            (re.compile(e["pattern"], re.IGNORECASE), e["reason"]) for e in deny.get("models", [])
+            (re.compile(e["pattern"], re.IGNORECASE), e["reason"]) for e in deny.get("models") or []
         ),
         container_only=frozenset(deny.get("container_only_modules", [])),
         overrides={
@@ -192,6 +214,24 @@ def _label(c: Component) -> str:
     return f"{c.kind}:{c.name}=={c.version}"
 
 
+_NC_HINT = "Erlaubt (ADR-0012), aber vor Weitergabe oder kommerzieller Nutzung neu prüfen."
+
+
+def _nc_findings(c: Component, policy: Policy) -> list[Finding]:
+    """Known non-commercial/research-only packages and models (ADR-0012: allowed, but marked)."""
+    subject = _label(c)
+    if c.kind == "model":
+        return [
+            _nc(subject, f"{reason}. {_NC_HINT}")
+            for pattern, reason in policy.nc_models
+            if pattern.search(c.name) or pattern.search(c.source)
+        ][:1]
+    name = normalize_name(c.name)
+    if name in policy.nc_packages:
+        return [_nc(subject, f"{policy.nc_packages[name]}. {_NC_HINT}")]
+    return []
+
+
 def check_component(c: Component, policy: Policy) -> list[Finding]:
     """Evaluate one dependency or model against the policy."""
     subject = _label(c)
@@ -201,8 +241,7 @@ def check_component(c: Component, policy: Policy) -> list[Finding]:
             _error(
                 subject,
                 f"Verboten (Denylist): {policy.denied_packages[name]}. "
-                "Abhilfe: Abhängigkeit entfernen und eine permissiv lizenzierte Alternative "
-                "wählen.",
+                "Abhilfe: Abhängigkeit entfernen und eine zulässige Alternative wählen.",
             )
         ]
     if c.kind == "model":
@@ -215,26 +254,43 @@ def check_component(c: Component, policy: Policy) -> list[Finding]:
                         "Abhilfe: Eintrag aus models.lock entfernen.",
                     )
                 ]
+    marked = _nc_findings(c, policy)
     license_ = (c.license or "").strip()
-    if any(p.search(license_) for p in policy.patterns):
-        return [
-            _error(
-                subject,
-                f"Nutzungsbeschränkte Lizenz '{license_}' (non-commercial/research-only) ist "
-                "verboten. Abhilfe: Alternative mit MIT/BSD/Apache-2.0 wählen.",
-            )
-        ]
+    if not any(p.search(license_) for p in policy.nc_patterns):
+        return marked + _check_license(c, license_, policy)
+    marked = marked or [
+        _nc(
+            subject,
+            f"Nutzungsbeschränkte Lizenz '{license_}' (non-commercial/research-only). {_NC_HINT}",
+        )
+    ]
+    alts = alternatives(license_)
+    if not alts:  # free text such as "Non-Commercial Use Only": NC is all we can tell
+        return marked
+    # SPDX expression: NC ids count as allowed, the rest (e.g. copyleft) is still checked.
+    nc_ids = frozenset(
+        atom for alt in alts for atom in alt if any(p.search(atom) for p in policy.nc_patterns)
+    )
+    return marked + _check_license(c, license_, policy, extra_allowed=nc_ids)
+
+
+def _check_license(
+    c: Component, license_: str, policy: Policy, extra_allowed: frozenset[str] = frozenset()
+) -> list[Finding]:
+    subject = _label(c)
     alts = alternatives(license_) if license_ else None
     if not alts:
         return [
             _error(
                 subject,
                 f"Lizenz unklar ('{license_ or 'keine Angabe'}'). Abhilfe: Lizenzdatei prüfen "
-                "und in licenses/allowlist.yaml unter 'overrides' mit Quelle eintragen "
-                "(PO-Freigabe).",
+                "und in licenses/allowlist.yaml unter 'overrides' mit Quelle eintragen, bei "
+                "NC-Lizenzen mit deren Kennung, z. B. 'LicenseRef-NC' (PO-Freigabe).",
             )
         ]
-    allowed = policy.allowed | (policy.data_allowed if c.kind == "model" else frozenset())
+    allowed = (
+        policy.allowed | extra_allowed | (policy.data_allowed if c.kind == "model" else frozenset())
+    )
     if any(alt <= allowed for alt in alts):
         return []
     if any(alt <= allowed | policy.copyleft for alt in alts):
@@ -290,7 +346,7 @@ def resolve_python_license(meta: metadata.PackageMetadata | Message, policy: Pol
             return field
         if field.lower() in _ALIASES:
             return _ALIASES[field.lower()]
-        if any(p.search(field) for p in policy.patterns):
+        if any(p.search(field) for p in policy.nc_patterns):
             return field  # keep the restricting text so the gate reports it
     classifiers = sorted(
         {
@@ -531,6 +587,78 @@ def scan_imports(src_dir: Path, policy: Policy, extra_modules: set[str]) -> list
     return findings
 
 
+# Model weight formats that must never be committed (CLAUDE.md rule 5, ADR-0012: public repo).
+_WEIGHT_SUFFIXES = frozenset(
+    {".pt", ".pth", ".ckpt", ".onnx", ".safetensors", ".tflite", ".engine"}
+)
+
+
+def _tracked_files(root: Path) -> list[str] | None:
+    """Files tracked by git (incl. submodule paths), or None outside a git work tree."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--cached"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    return result.stdout.splitlines() if result.returncode == 0 else None
+
+
+def scan_repository(root: Path, policy: Policy, tracked: list[str] | None = None) -> list[Finding]:
+    """No NC code or weights in the public repository (ADR-0012): tracked paths and submodule
+    URLs must not be named after a known NC project, and no model weights may be committed."""
+    files = _tracked_files(root) if tracked is None else tracked
+    if files is None:
+        return []
+    nc_names = {name: reason for name, reason in policy.nc_packages.items()} | {
+        normalize_name(name.rsplit("/", 1)[-1]): reason
+        for name, reason in policy.nc_image_components
+    }
+    findings = []
+    for path in files:
+        parts = {normalize_name(Path(part).stem) for part in Path(path).parts}
+        parts |= {normalize_name(part) for part in Path(path).parts}
+        hits = sorted(parts & nc_names.keys())
+        if hits:
+            findings.append(
+                _error(
+                    f"repo:{path}",
+                    f"NC-Komponente '{hits[0]}' im öffentlichen Repository ({nc_names[hits[0]]}). "
+                    "Abhilfe: nicht vendoren/kopieren; nur lokal aus der Upstream-Quelle bauen "
+                    "(Dockerfile) bzw. per 'drone-scan models pull' laden (ADR-0012).",
+                )
+            )
+        elif Path(path).suffix.lower() in _WEIGHT_SUFFIXES:
+            findings.append(
+                _error(
+                    f"repo:{path}",
+                    "Modellgewichte gehören nicht ins Repository. Abhilfe: Datei aus Git "
+                    "entfernen, in models.lock eintragen und per 'drone-scan models pull' laden.",
+                )
+            )
+    gitmodules = root / ".gitmodules"
+    if gitmodules.is_file():
+        for line in gitmodules.read_text(encoding="utf-8").splitlines():
+            key, _, url = line.partition("=")
+            if key.strip() != "url":
+                continue
+            repo_name = normalize_name(
+                url.strip().rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+            )
+            if repo_name in nc_names:
+                findings.append(
+                    _error(
+                        "repo:.gitmodules",
+                        f"Submodule mit NC-Komponente '{repo_name}' ({nc_names[repo_name]}). "
+                        "Abhilfe: Submodule entfernen, nur lokal bauen (ADR-0012).",
+                    )
+                )
+    return findings
+
+
 def _copyleft_modules(components: list[Component], policy: Policy) -> set[str]:
     """Top-level modules provided by installed distributions without a non-copyleft option."""
     copyleft = set()
@@ -557,6 +685,10 @@ def run_gate(root: Path) -> list[Finding]:
         findings.extend(check_component(component, policy))
     if (root / "src").is_dir():
         findings.extend(scan_imports(root / "src", policy, _copyleft_modules(python, policy)))
+    findings.extend(
+        _nc(f"image:{name}", f"{reason}. {_NC_HINT}") for name, reason in policy.nc_image_components
+    )
+    findings.extend(scan_repository(root, policy))
     return findings
 
 
@@ -564,13 +696,17 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     root = Path(args[0]) if args else Path.cwd()
     findings = run_gate(root)
-    errors = [f for f in findings if f.severity == "error"]
+    markers = {"error": "FEHLER ", "warning": "Warnung", "nc": "NC     "}
+    counts = {severity: 0 for severity in markers}
     for f in findings:
-        marker = "FEHLER " if f.severity == "error" else "Warnung"
-        print(f"{marker} {f.subject}: {f.message}")
-    status = "fehlgeschlagen" if errors else "bestanden"
-    print(f"Lizenz-Gate {status}: {len(errors)} Fehler, {len(findings) - len(errors)} Warnungen.")
-    return 1 if errors else 0
+        counts[f.severity] += 1
+        print(f"{markers[f.severity]} {f.subject}: {f.message}")
+    status = "fehlgeschlagen" if counts["error"] else "bestanden"
+    print(
+        f"Lizenz-Gate {status}: {counts['error']} Fehler, {counts['warning']} Warnungen, "
+        f"{counts['nc']} NC-Komponenten (vor Weitergabe neu prüfen, ADR-0012)."
+    )
+    return 1 if counts["error"] else 0
 
 
 if __name__ == "__main__":

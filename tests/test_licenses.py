@@ -1,4 +1,4 @@
-"""License gate (KAN-23): allow-/denylist, models.lock, copyleft imports."""
+"""License gate (KAN-23, ADR-0012): allow-/denylist, NC marking, models.lock, copyleft imports."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from dronescan.common.licenses import (
     run_gate,
     runtime_packages,
     scan_imports,
+    scan_repository,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,17 +45,27 @@ def errors(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "error"]
 
 
-def test_policy_files_name_the_forbidden_projects(policy: Policy) -> None:
+def nc(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.severity == "nc"]
+
+
+def test_policy_files_mark_the_known_nc_projects(policy: Policy) -> None:
     """Given licenses/denylist.yaml,
     When it is loaded,
-    Then Inria 3DGS, DUSt3R, MASt3R and SuperPoint weights are denied (AC 1).
+    Then Inria 3DGS, DUSt3R, MASt3R, SiftGPU and SuperPoint weights are known as NC (ADR-0012).
     """
-    assert {"diff-gaussian-rasterization", "gaussian-splatting", "dust3r", "mast3r"} <= set(
-        policy.denied_packages
+    assert {
+        "diff-gaussian-rasterization",
+        "gaussian-splatting",
+        "dust3r",
+        "mast3r",
+    } <= set(policy.nc_packages)
+    assert "colmap/siftgpu" in {name for name, _ in policy.nc_image_components}
+    nc_model_patterns = " ".join(p.pattern for p, _ in policy.nc_models)
+    assert "superpoint" in nc_model_patterns
+    assert {"MIT", "Apache-2.0", "PSF-2.0", "BSL-1.0", "Zlib", "0BSD", "CC0-1.0", "curl"} <= (
+        policy.allowed
     )
-    denied_model_patterns = " ".join(p.pattern for p, _ in policy.denied_models)
-    assert "superpoint" in denied_model_patterns
-    assert {"MIT", "Apache-2.0", "PSF-2.0"} <= policy.allowed
 
 
 @pytest.mark.parametrize(
@@ -70,13 +81,15 @@ def test_permissive_expressions_pass(policy: Policy, expression: str) -> None:
 
 
 @pytest.mark.parametrize("license_", ["CC-BY-NC-4.0", "CC-BY-NC-SA-4.0", "Non-Commercial Use Only"])
-def test_nc_license_fails(policy: Policy, license_: str) -> None:
+def test_nc_license_is_marked_not_failed(policy: Policy, license_: str) -> None:
     """Given a dependency with a non-commercial license,
     When it is checked (runtime or dev),
-    Then the gate fails (Q-8).
+    Then the gate does not fail but marks it as NC (ADR-0012).
     """
-    assert errors(check_component(comp(license_), policy))
-    assert errors(check_component(comp(license_, scope="dev"), policy))
+    for scope in ("runtime", "dev"):
+        findings = check_component(comp(license_, scope=scope), policy)
+        assert errors(findings) == []
+        assert len(nc(findings)) == 1 and "ADR-0012" in findings[0].message
 
 
 def test_copyleft_runtime_dependency_fails(policy: Policy) -> None:
@@ -106,13 +119,63 @@ def test_unclear_license_fails(policy: Policy, license_: str | None) -> None:
     assert errors(check_component(comp(license_), policy))
 
 
-def test_denylisted_package_fails_even_with_permissive_metadata(policy: Policy) -> None:
+@pytest.mark.parametrize("scope", ["runtime", "dev"])
+def test_nc_does_not_hide_copyleft(policy: Policy, scope: Scope) -> None:
+    """Given an SPDX expression that combines copyleft AND an NC license,
+    When it is checked,
+    Then it is marked NC and the copyleft part is still judged as before
+    (runtime: error, dev: warning); with OR the NC alternative may be chosen.
+    """
+    findings = check_component(comp("AGPL-3.0-only AND CC-BY-NC-4.0", scope=scope), policy)
+    assert nc(findings)
+    if scope == "runtime":
+        assert errors(findings) and "Copyleft" in errors(findings)[0].message
+    else:
+        assert errors(findings) == [] and any(f.severity == "warning" for f in findings)
+
+    either = check_component(comp("GPL-3.0-only OR CC-BY-NC-4.0", scope=scope), policy)
+    assert nc(either) and errors(either) == []
+
+
+def test_image_components_are_reported_as_nc() -> None:
+    """Given NC components compiled into the Docker images (e.g. SiftGPU in COLMAP),
+    When the gate runs on the repository,
+    Then each one appears in the report as NC (ADR-0012), without failing the gate.
+    """
+    findings = run_gate(ROOT)
+    assert "image:colmap/siftgpu" in {f.subject for f in nc(findings)}
+    assert errors(findings) == []
+
+
+def test_known_nc_package_is_marked_even_with_permissive_metadata(policy: Policy) -> None:
     """Given the Inria rasterizer with misleading MIT metadata,
     When it is checked,
-    Then the denylist wins.
+    Then it is marked as NC from the denylist (no error).
     """
-    found = errors(check_component(comp("MIT", name="diff_gaussian_rasterization"), policy))
-    assert found and "Inria" in found[0].message
+    findings = check_component(comp("MIT", name="diff_gaussian_rasterization"), policy)
+    assert errors(findings) == []
+    assert nc(findings) and "Inria" in findings[0].message
+
+
+def test_hard_denylist_still_fails(tmp_path: Path) -> None:
+    """Given a package and a model in the hard-ban sections `packages`/`models`,
+    When they are checked,
+    Then the gate fails regardless of their license.
+    """
+    licenses = tmp_path / "licenses"
+    shutil.copytree(ROOT / "licenses", licenses)
+    deny = (licenses / "denylist.yaml").read_text(encoding="utf-8")
+    deny = deny.replace(
+        "packages: []", "packages:\n  - name: evil-pkg\n    reason: gesperrt"
+    ).replace("models: []", "models:\n  - pattern: 'evil'\n    reason: gesperrt")
+    (licenses / "denylist.yaml").write_text(deny, encoding="utf-8")
+    strict = load_policy(licenses)
+    model = Component(
+        kind="model", name="evil-net", version="1", license="MIT", scope="runtime", source=""
+    )
+
+    assert errors(check_component(comp("MIT", name="evil_pkg"), strict))
+    assert errors(check_component(model, strict))
 
 
 def make_metadata(**fields: str | list[str]) -> Message:
@@ -137,6 +200,10 @@ def make_metadata(**fields: str | list[str]) -> Message:
             "MIT",
         ),
         ({"Name": "e", "License": "BSD"}, None),  # ambiguous without override
+        (  # short NC field wins over a permissive classifier (NC must stay visible)
+            {"Name": "g", "License": "Non-Commercial Use Only", "Classifier": [MIT_CLASSIFIER]},
+            "Non-Commercial Use Only",
+        ),
     ],
 )
 def test_python_license_resolution(
@@ -193,30 +260,32 @@ MODEL = {
 }
 
 
-def test_models_lock_with_nc_weights_fails(tmp_path: Path, policy: Policy) -> None:
+def test_models_lock_with_nc_weights_is_marked(tmp_path: Path, policy: Policy) -> None:
     """Given models.lock with a model whose weights are CC-BY-NC,
     When the gate checks it,
-    Then the build fails (Q-8).
+    Then the build passes and the model is marked as NC (ADR-0012).
     """
     lock = write_models_lock(tmp_path / "models.lock", [{**MODEL, "license": "CC-BY-NC-4.0"}])
 
     components, findings = model_components(lock)
     all_findings = findings + [f for c in components for f in check_component(c, policy)]
 
-    assert errors(all_findings)
+    assert errors(all_findings) == []
+    assert len(nc(all_findings)) == 1
 
 
-def test_denylisted_model_name_fails(tmp_path: Path, policy: Policy) -> None:
+def test_known_nc_model_name_is_marked(tmp_path: Path, policy: Policy) -> None:
     """Given SuperPoint weights in models.lock (even with a permissive license field),
     When the gate checks it,
-    Then the denylist rejects it and recommends ALIKED + LightGlue.
+    Then it is marked as NC with the reason from the denylist.
     """
     lock = write_models_lock(tmp_path / "models.lock", [{**MODEL, "name": "SuperPoint_v1"}])
 
     components, _ = model_components(lock)
-    found = errors(check_component(components[0], policy))
+    findings = check_component(components[0], policy)
 
-    assert found and "ALIKED" in found[0].message
+    assert errors(findings) == []
+    assert nc(findings) and "SuperPoint" in findings[0].message
 
 
 def test_cc_by_is_allowed_for_models_only(tmp_path: Path, policy: Policy) -> None:
@@ -257,10 +326,11 @@ def test_npm_licenses_are_read_from_node_modules(tmp_path: Path, policy: Policy)
         )
 
     components = npm_components(tmp_path / "viewer")
-    bad = [c for c in components if errors(check_component(c, policy))]
+    marked = [c for c in components if nc(check_component(c, policy))]
 
     assert {c.name for c in components} == {"three", "@scope/bad"}
-    assert [c.name for c in bad] == ["@scope/bad"]
+    assert [c.name for c in marked] == ["@scope/bad"]
+    assert not any(errors(check_component(c, policy)) for c in components)
 
 
 def test_container_only_import_in_src_is_reported(tmp_path: Path, policy: Policy) -> None:
@@ -302,9 +372,9 @@ def test_repository_passes_the_gate() -> None:
 def test_main_exit_code_reflects_violations(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Given a repository copy with NC weights in models.lock,
+    """Given repository copies with NC weights resp. weights with an unclear license,
     When `python -m dronescan.common.licenses` runs,
-    Then it exits 1 and prints a German report; the real repo exits 0.
+    Then NC passes (exit 0) but is reported; the unclear license exits 1; the real repo exits 0.
     """
     assert main([str(ROOT)]) == 0
 
@@ -314,9 +384,15 @@ def test_main_exit_code_reflects_violations(
     shutil.copy(ROOT / "uv.lock", repo / "uv.lock")
     (repo / "src").mkdir()
     write_models_lock(repo / "models.lock", [{**MODEL, "license": "CC-BY-NC-4.0"}])
+    capsys.readouterr()
 
+    assert main([str(repo)]) == 0
+    out = capsys.readouterr().out
+    assert "NC      model:aliked" in out and "2 NC-Komponenten" in out  # + SiftGPU image
+
+    write_models_lock(repo / "models.lock", [{**MODEL, "license": "Proprietary"}])
     assert main([str(repo)]) == 1
-    assert "Lizenz-Gate" in capsys.readouterr().out
+    assert "Lizenz-Gate fehlgeschlagen" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -459,7 +535,7 @@ def test_npm_pnpm_indirect_and_legacy_licenses(tmp_path: Path, policy: Policy) -
     components = {c.name: c for c in npm_components(tmp_path / "viewer")}
 
     assert components["old"].license == "MIT"
-    assert errors(check_component(components["dep"], policy))
+    assert nc(check_component(components["dep"], policy))
 
 
 def test_viewer_without_node_modules_fails(tmp_path: Path) -> None:
@@ -491,10 +567,10 @@ def test_dynamic_import_of_container_only_module_is_reported(
     assert errors(scan_imports(src, policy, extra_modules=set()))
 
 
-def test_denylisted_model_matched_by_source(tmp_path: Path, policy: Policy) -> None:
+def test_known_nc_model_matched_by_source(tmp_path: Path, policy: Policy) -> None:
     """Given a model whose name is harmless but whose source is the SuperPoint repo,
     When the gate checks it,
-    Then the denylist matches on the source.
+    Then the NC list matches on the source.
     """
     lock = write_models_lock(
         tmp_path / "models.lock",
@@ -508,4 +584,43 @@ def test_denylisted_model_matched_by_source(tmp_path: Path, policy: Policy) -> N
     )
     components, _ = model_components(lock)
 
-    assert errors(check_component(components[0], policy))
+    assert nc(check_component(components[0], policy))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "third_party/SiftGPU/SiftGPU.cpp",
+        "vendor/diff_gaussian_rasterization/__init__.py",
+        "models/dust3r.py",
+        "weights/aliked-n16.pth",
+        "data/model.ONNX",
+    ],
+)
+def test_nc_code_or_weights_in_public_repo_fail(policy: Policy, path: str) -> None:
+    """Given a tracked file that vendors a known NC project or commits model weights,
+    When the repository is scanned,
+    Then the gate fails: NC code/weights must not land in the public repo (ADR-0012).
+    """
+    found = errors(scan_repository(ROOT, policy, tracked=["src/ok.py", path]))
+    assert [f.subject for f in found] == [f"repo:{path}"]
+
+
+def test_nc_submodule_fails(tmp_path: Path, policy: Policy) -> None:
+    """Given a .gitmodules entry pointing to an NC project,
+    When the repository is scanned,
+    Then the gate fails.
+    """
+    (tmp_path / ".gitmodules").write_text(
+        '[submodule "x"]\n\tpath = ext/x\n\turl = https://github.com/naver/dust3r.git\n'
+    )
+    assert errors(scan_repository(tmp_path, policy, tracked=[]))
+
+
+def test_dockerfile_building_nc_upstream_is_fine(tmp_path: Path, policy: Policy) -> None:
+    """Given the real repository (COLMAP with SiftGPU is only built locally from upstream),
+    When it is scanned,
+    Then there are no findings; outside a git work tree the scan is skipped.
+    """
+    assert scan_repository(ROOT, policy) == []
+    assert scan_repository(tmp_path, policy) == []

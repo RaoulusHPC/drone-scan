@@ -1,8 +1,13 @@
-# License denylist (ADR-0007). Anything matching here fails `make license-gate`.
-# Changes to this file are always merged by the PO.
+# License denylist (ADR-0007, ADR-0012). Changes to this file are always merged by the PO.
+#
+# Since ADR-0012 non-commercial/research-only components are ALLOWED (non-profit project,
+# images built and used locally only). The repository is public: NC code/weights must never be
+# committed (the gate checks tracked paths, submodule URLs and weight files). The nc_* sections below do not fail the gate;
+# matches are reported as "NC" so every such component can be found and re-checked before
+# any redistribution or commercial use. Hard bans stay in `packages`/`models` and `copyleft`.
 
-# Regex patterns (case-insensitive) for license texts/ids that restrict use.
-license_patterns:
+# Regex patterns (case-insensitive) for license texts/ids that restrict use (reported as NC).
+nc_license_patterns:
   - '(^|[^a-z])NC([^a-z]|$)' # CC-BY-NC-*, "NC"
   - 'non[- ]?commercial'
   - 'research[- ]?only'
@@ -20,9 +25,11 @@ copyleft:
   - AGPL-3.0-only
   - AGPL-3.0-or-later
 
-# Packages (Python or npm, normalised names) that must never be dependencies.
-# Reasons are shown to the user (German); sources: license-auditor review 2026-11-21.
-packages:
+# Known non-commercial/research-only packages (Python or npm, normalised names), reported as NC.
+# Allowed licence-wise, but switching the stack to them still needs an ADR and PO approval
+# (gsplat stays, ADR-0002). Reasons are shown to the user (German); sources: license-auditor
+# reviews 2026-11-21.
+nc_packages:
   - name: diff-gaussian-rasterization
     reason: Inria-3DGS-Rasterizer, Gaussian-Splatting License (nur Forschung/Evaluation)
   - name: gaussian-splatting
@@ -38,14 +45,20 @@ packages:
   - name: mast3r
     reason: MASt3R-Code CC BY-NC-SA 4.0, Checkpoints an nicht kommerzielle Trainingsdaten gebunden
   - name: superglue
-    reason: SuperGlue (Magic Leap) nur für nicht kommerzielle Forschung; ALIKED + LightGlue nutzen
+    reason: SuperGlue (Magic Leap) nur für nicht kommerzielle Forschung
 
-# Models/weights (regex on the models.lock name and source, case-insensitive).
-models:
+# NC components compiled into the Docker images (not Python/npm packages, so the gate cannot
+# detect them). Listed here so every gate run reports them as NC (ADR-0012).
+nc_image_components:
+  - name: colmap/siftgpu
+    reason: SiftGPU (UNC) im COLMAP-Image (CUDA-Build), nur für Lehre/Forschung/Non-Profit
+
+# Known non-commercial models/weights (regex on models.lock name and source), reported as NC.
+nc_models:
   - pattern: 'superpoint'
-    reason: SuperPoint-Gewichte (Magic Leap) nicht kommerziell; ALIKED + LightGlue verwenden
+    reason: SuperPoint-Gewichte (Magic Leap) nicht kommerziell
   - pattern: 'superglue'
-    reason: SuperGlue-Gewichte (Magic Leap) nicht kommerziell; LightGlue verwenden
+    reason: SuperGlue-Gewichte (Magic Leap) nicht kommerziell
   - pattern: 'dust3r'
     reason: DUSt3R-Checkpoints an nicht kommerzielle Trainingsdaten gebunden
   - pattern: 'mast3r'
@@ -56,6 +69,10 @@ models:
     reason: Depth-Anything-V2 Base/Large/Giant sind CC-BY-NC-4.0 (nur Small ist Apache-2.0)
   - pattern: 'vggt(?!.*commercial)'
     reason: Original-VGGT-Checkpoint nicht kommerziell (nur VGGT-1B-Commercial nach PO-Freigabe)
+
+# Packages and models that must never be used, regardless of NC (fail the gate). Empty for now.
+packages: []
+models: []
 
 # Python modules of copyleft tools that may only run in their own container/process,
 # never be imported from src/ (e.g. OpenMVS bindings, GPL mesh tools, AGPL detectors).

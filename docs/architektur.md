@@ -24,7 +24,7 @@ Kleine Drohnen fliegen durch Gebäude und nehmen dabei Videos auf. Aus diesen Vi
 | Prio | Qualitätsziel | Konkretisierung |
 |---|---|---|
 | 1 | **Effizienz auf Consumer-Hardware** | Läuft vollständig auf einem Laptop mit RTX 2060 (6 GiB VRAM). Keine Stufe überschreitet 5,5 GiB VRAM pro Prozess (inkl. CUDA-Kontext). |
-| 2 | **Rechtssicherheit / Lizenzreinheit** | Ausschließlich Open Source. Kommerzielle Nutzung muss möglich sein, also keine Komponenten mit „non-commercial“-Lizenz. |
+| 2 | **Rechtssicherheit / Lizenzreinheit** | Open Source plus NVIDIA-GPU-Laufzeit. Non-commercial-Komponenten sind erlaubt (ADR-0012, Non-Profit, nur lokale Nutzung), werden aber lückenlos erfasst. Vor jeder Weitergabe oder kommerziellen Nutzung werden sie neu geprüft. |
 | 3 | **Datenschutz** | Offline-first: Alle Daten bleiben lokal. Es gibt keine Cloud-Pflicht und keine Telemetrie. |
 | 4 | **Robustheit** | Schlechtes Material (Unschärfe, texturarme Wände, mehrere Akkuflüge) führt zu verwertbaren Ergebnissen oder zu **konkreten Handlungsempfehlungen**. |
 | 5 | **Bedienbarkeit** | Laien kommen ohne Kommandozeile vom Video zur Begehung („Ein-Klick-Pipeline“, Bedienung per Android-Browser). |
@@ -49,7 +49,7 @@ Kleine Drohnen fliegen durch Gebäude und nehmen dabei Videos auf. Aus diesen Vi
 | Technisch | Zielrechner: Laptop mit **RTX 2060 (6 GB, Turing, CUDA Compute Capability 7.5)**, Ubuntu LTS. Endgerät: Android-Smartphone (aktueller Chrome/Firefox). |
 | Technisch | **Entwicklungsrechner:** Desktop mit **GTX 1060 6GB (Pascal, Compute Capability 6.1)**. Die zusätzlich verbaute RTX 2070 SUPER ist reserviert und wird nur mit Zustimmung des POs genutzt. Claude Code läuft lokal auf diesem Rechner. Pascal wird von aktuellen PyTorch-Builds nur noch über **CUDA-12.6-Wheels** unterstützt, **PyTorch 2.14 ist die letzte Version mit vorgefertigten Paketen** (siehe ADR-0010). Builds werden daher für `sm_61` **und** `sm_75` erzeugt, Tests laufen mit 5,0-GiB-Allocator-Grenze, damit der Zielrechner abgebildet ist. |
 | Technisch | Drohne: „einfache Drohne mit Kamera“, Entwicklung ca. 100 €, Endnutzer max. 500 € → **das System muss drohnen-agnostisch sein** (Videodatei als Minimalschnittstelle). |
-| Lizenz | Nur Open Source. **Bevorzugt** MIT/BSD/Apache-2.0. **Copyleft** (GPL/AGPL) nur als eigenständiges Werkzeug bzw. als separater Prozess. **Verboten:** Lizenzen mit Nutzungsbeschränkung („non-commercial“, z. B. Inria-3DGS, DUSt3R/MASt3R, SuperPoint-Gewichte). |
+| Lizenz | Open Source, **bevorzugt** MIT/BSD/Apache-2.0. **Copyleft** (GPL/AGPL) nur als eigenständiges Werkzeug bzw. als separater Prozess. **Non-commercial/research-only erlaubt** (ADR-0012), im Lizenz-Gate als `NC` markiert. Proprietäre NVIDIA-GPU-Laufzeit erlaubt. Docker-Images nur lokal, nie in eine Registry. |
 | Organisatorisch | Ein Gründer als Product Owner, Implementierung überwiegend mit Claude Code. Projektmanagement in **Jira** (Projekt „DRN“ (Schlüssel `KAN`)). |
 | Rechtlich | DSGVO bei Aufnahmen fremder Räume; Haftpflicht für Drohnenbetrieb klären. Reiner Innenraumflug unterliegt nach gängiger Auslegung nicht den EU-Luftraumregeln (keine Kenntnisnachweispflicht). Das ist vor dem kommerziellen Einsatz juristisch zu bestätigen. |
 | Konventionen | Doku auf Deutsch, Code/Bezeichner/Commits auf Englisch. arc42 für Architektur, ADRs (Nygard-Format) für Entscheidungen. |
@@ -279,7 +279,7 @@ flowchart LR
 Es gibt Manifeste pro Stufe, gepinnte Abhängigkeiten (`uv.lock`), ein `models.lock` (Name, Version, SHA-256, Lizenz, Quelle) und feste Seeds.
 
 ### 8.4 Lizenz-Compliance
-`licenses/allowlist.yaml` (erlaubte SPDX-IDs), `licenses/denylist.yaml` (verbotene Pakete und Modelle mit Begründung). Der CI-Job prüft Python- und npm-Abhängigkeiten sowie das `models.lock`. Pro Release wird eine SBOM erzeugt (SPDX/CycloneDX). Copyleft-Werkzeuge (OpenMVS, ArduPilot, ggf. ORB-SLAM3) werden nur als separater Prozess bzw. separates Image genutzt und nicht in den eigenen Code eingebunden.
+`licenses/allowlist.yaml` (erlaubte SPDX-IDs), `licenses/denylist.yaml` (bekannte NC-Pakete und -Modelle, die als `NC` markiert werden, sowie harte Verbote, jeweils mit Begründung). Der CI-Job prüft Python- und npm-Abhängigkeiten sowie das `models.lock`. Pro Release wird eine SBOM erzeugt (SPDX/CycloneDX). Copyleft-Werkzeuge (OpenMVS, ArduPilot, ggf. ORB-SLAM3) werden nur als separater Prozess bzw. separates Image genutzt und nicht in den eigenen Code eingebunden.
 
 ### 8.5 Datenschutz (Privacy by Design, Art. 25 DSGVO)
 Es gibt keine Cloud und keine Telemetrie. Die Anonymisierung ist **vor dem Export standardmäßig aktiv**. Löschen erfolgt pro Scan vollständig, inklusive Index und Cache. Optional kommt eine Einwilligungsnotiz des Eigentümers in `scan.yaml`. Exporte erhalten ein Wasserzeichen bzw. Metadaten („Aufnahmedatum, nicht maßstabsverbindlich“).
@@ -325,11 +325,12 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | 0004 | Drohnen-agnostisch: Videodatei als Minimalschnittstelle | angenommen |
 | 0005 | **ArduPilot** als offene Flugplattform ab M5 (Unterstützung kleiner Flight Controller + optischer Fluss); PX4 bleibt Alternative | vorgeschlagen |
 | 0006 | Web-PWA statt nativer Android-App | angenommen |
-| 0007 | Lizenzpolitik: permissiv bevorzugt, Copyleft nur als separater Prozess, Nutzungsbeschränkung verboten | angenommen |
+| 0007 | Lizenzpolitik: permissiv bevorzugt, Copyleft nur als separater Prozess, Nutzungsbeschränkung verboten | angenommen, teilweise abgelöst durch 0012 |
 | 0008 | Gegenstandssuche über 2D-Detektion + 3D-Lifting statt semantischer 3D-Felder | angenommen |
 | 0009 | Python 3.12 + uv (Pipeline/Server), TypeScript + Vite (Viewer), Docker Compose (Betrieb) | angenommen |
 | 0010 | Dual-GPU-Unterstützung: Entwicklung auf GTX 1060 6GB (sm_61), Ziel RTX 2060 (sm_75); CUDA 12.6 + PyTorch ≤ 2.14 gepinnt | angenommen |
 | 0011 | Projektlizenz **AGPL-3.0-or-later** für den eigenen Code (Copyleft auch bei Netznutzung); fremde Abhängigkeiten weiter nach ADR-0007 | angenommen |
+| 0012 | **Non-commercial/research-only erlaubt** (Non-Profit, Images nur lokal), NVIDIA-Laufzeit erlaubt; Gate markiert NC; Neuprüfung vor jeder Weitergabe oder kommerziellen Nutzung | angenommen |
 
 ---
 
@@ -344,7 +345,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | Q-5 | Testset mit 20 platzierten Gegenständen | Gegenstand in Top-3-Treffern bei **≥ 70 %** |
 | Q-6 | Suchanfrage nach Indexierung | Antwort **< 3 s** |
 | Q-7 | Viewer auf Mittelklasse-Android | **≥ 30 fps** bei komprimierter Szene (≤ 1,5 M Gaussians) |
-| Q-8 | Neue Abhängigkeit mit NC-Lizenz | **CI schlägt fehl** (`make license-gate`, Teil von `make check`) |
+| Q-8 | Neue Abhängigkeit mit NC-Lizenz | Erscheint im Gate-Report als **`NC`** (ADR-0012); unklare Lizenz oder Copyleft in der Laufzeit → **CI schlägt fehl** (`make license-gate`, Teil von `make check`) |
 | Q-9 | Unscharfes Video | Exit 20 mit **mind. 1 konkretem Hinweis** statt Absturz |
 
 ---
@@ -356,7 +357,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | R-01 | Texturarme Wände, Glas, Spiegel → SfM scheitert | hoch | hoch | AprilTags, Licht, Capture Guidance, alternative Matcher (ALIKED+LightGlue), Spike in Sprint 0 |
 | R-02 | Bewegungsunschärfe / Rolling Shutter bei Billigkameras | hoch | mittel | Schärfefilter, langsames Fliegen, höhere Bildrate, Drohnenauswahl |
 | R-03 | 6 GB VRAM reichen für große Gebäude nicht | mittel | hoch | Raum-Chunking, Downscaling, Gaussian-Limit, Komprimierung |
-| R-04 | Lizenzfallen (NC-Gewichte, fremder GPL/AGPL-Code im Kern → verhindert Doppellizenzierung, ADR-0011) | mittel | hoch | Lizenz-Gate in der CI, Denylist, Review bei jeder neuen Abhängigkeit |
+| R-04 | Lizenzfallen (NC-Komponenten verhindern Weitergabe/Kommerzialisierung, ADR-0012; fremder GPL/AGPL-Code im Kern → verhindert Doppellizenzierung, ADR-0011) | mittel | hoch | Lizenz-Gate in der CI markiert NC, Denylist, Review bei jeder neuen Abhängigkeit, Neuprüfung vor jeder Weitergabe |
 | R-05 | Autonomer Indoor-Flug für das Budget zu komplex | hoch | mittel | Manueller Flug bis M4, SITL zuerst, Autonomie als eigene Ausbaustufe |
 | R-06 | Kurze Akkulaufzeit (5–19 min) → viele Teilflüge | hoch | mittel | Multi-Flight-Merge, Brückenflüge, Ladeplanung |
 | R-07 | Optische-Fluss-Sensoren liefern indoor schlechte Qualität | mittel | mittel | Sensorvergleich (Matek 3901-L0X vs. MicoAir MTF-01/02), Bodentextur, Licht |

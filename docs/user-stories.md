@@ -701,7 +701,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich dass nicht erlaubte Lizenzen a
 **Akzeptanzkriterien**
 
 - [ ] `licenses/allowlist.yaml` und `denylist.yaml` (u. a. Inria-3DGS, DUSt3R, MASt3R, SuperPoint-Gewichte) existieren.
-- [ ] CI prüft Python- und npm-Abhängigkeiten sowie `models.lock`; eine NC-Lizenz lässt den Build fehlschlagen (Q-8).
+- [ ] CI prüft Python- und npm-Abhängigkeiten sowie `models.lock`; eine NC-Lizenz erscheint im Report als `NC` (ADR-0012), unklare Lizenzen und Copyleft in der Laufzeit lassen den Build fehlschlagen (Q-8).
 - [ ] Copyleft-Pakete sind nur in Container-Images ohne Import aus `src/` erlaubt; Verstoß wird gemeldet.
 
 ### US-009 / KAN-24: Modell-Registry `models.lock` und `drone-scan models pull`

@@ -1,4 +1,4 @@
-# License allowlist (ADR-0007, ADR-0011). Checked by `make license-gate` (part of `make check`/CI).
+# License allowlist (ADR-0007, ADR-0011, ADR-0012). Checked by `make license-gate` (part of `make check`/CI).
 # Changes to this file are always merged by the PO.
 
 # SPDX ids allowed for runtime and dev dependencies.
@@ -14,6 +14,17 @@ licenses:
   - LGPL-2.1-or-later
   - LGPL-3.0-only
   - LGPL-3.0-or-later
+  # PO decision 2026-11-21 (license-auditor KAN-18: torch, numpy, Boost, LLVM, curl)
+  - BSL-1.0
+  - Apache-2.0 WITH LLVM-exception # documentation: the gate ignores WITH exceptions
+  - Zlib
+  - 0BSD
+  - CC0-1.0
+  - curl
+
+# NVIDIA GPU runtime (ADR-0012, PO 2026-11-21): CUDA runtime, cuBLAS, cuDNN, cuSPARSELt, NCCL,
+# NVSHMEM, cuda-bindings and the nvidia/cuda base images are proprietary but allowed like the
+# driver. They live in the Docker images only (not in uv.lock) and are not checked by the gate.
 
 # Additionally allowed for model weights and data in models.lock (ADR-0007: CC-BY-4.0 for data).
 data_licenses:
