@@ -18,7 +18,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_COMPILE_BYTECODE=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_HTTP_TIMEOUT=300
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3.12 python3.12-dev git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
