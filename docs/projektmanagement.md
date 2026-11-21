@@ -32,7 +32,7 @@
 
 **Rollen**
 
-- **Product Owner (du):** priorisiert, nimmt ab und reviewt jeden Pull Request. Freigabe echter Flüge erfolgt nur durch dich.
+- **Product Owner (du):** priorisiert, nimmt ab und setzt Stories auf *Done*. Reviewt und mergt PRs, die nicht unter die Self-Merge-Regel fallen (§ 6). Freigabe echter Flüge erfolgt nur durch dich.
 - **Claude Code:** plant (Plan Mode), implementiert, testet, schreibt Doku-Updates, schlägt ADRs vor und aktualisiert Jira-Status.
 - **Subagents (in `.claude/agents/`):** spezialisierte Prüfer (Lizenz, VRAM, Review, Flugsicherheit).
 
@@ -117,7 +117,7 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 - [ ] `make check` grün (ruff, mypy, pytest CPU, Lizenz-Gate)
 - [ ] Bei GPU-Code: `make test-gpu` grün **mit VRAM-Grenze 5,5 GB**, Peak-VRAM im PR notiert
 - [ ] Doku aktualisiert (Architektur/ADR/README/Fehlercodes, sofern betroffen)
-- [ ] PR mit Story-Key im Titel, vom PO reviewt und gemergt
+- [ ] PR mit Story-Key im Titel, gemergt: durch Claude Code gemäß Self-Merge-Regel (§ 6), sonst vom PO reviewt und gemergt
 - [ ] Jira-Story auf *Done*, Kommentar mit PR-Link und Demo-Hinweis
 
 ---
@@ -131,12 +131,20 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 4. Claude Code: Branch feat/KAN-xx-kurzname, Tests zuerst (Akzeptanzkriterien), Implementierung
 5. Claude Code: make check (+ make test-gpu), Subagent "reviewer" + ggf. "license-auditor"/"vram-guard"
 6. Claude Code: PR "KAN-xx: <Titel>", Story → "In Review", Kommentar mit PR-Link
-7. PO:          Review, Merge → Story "Done"
+7. Merge:       Claude Code selbst, wenn die Self-Merge-Regel erfüllt ist – sonst PO (Review, Merge)
+   PO:          Story → "Done"
 8. Retro-Fund:  Neue Regel? → CLAUDE.md ergänzen (/retro)
 ```
 
 - **Commits:** Conventional Commits mit Story-Key, z. B. `feat(sfm): add AprilTag scale alignment (KAN-27)`.
 - **Branches:** `feat/KAN-xx-…`, `fix/KAN-xx-…`, `spike/KAN-xx-…`.
+- **Self-Merge-Regel (seit 21.11.2026, PO-Entscheidung):** Claude Code mergt einen PR selbst (Merge-Commit), wenn **alle** Bedingungen erfüllt sind:
+  1. `make check` grün, sobald vorhanden auch die CI. Bei GPU-Code zusätzlich `make test-gpu` mit 5,5-GB-Grenze.
+  2. Subagent `reviewer` meldet keine BLOCKER. Je nach Änderung gilt das auch für `license-auditor` und `vram-guard`.
+  3. Der PR ist konfliktfrei (`mergeable_state = clean`).
+  4. Der PR ändert **nichts** unter `flight/`, an `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik oder die Schutzmechanismen von Claude Code betreffen.
+
+  Den Jira-Status *Done* setzt weiterhin der PO. Nach dem Merge kommentiert Claude Code den Merge-Commit in der Story.
 - **Kontextpflege:** Eine Story pro Claude-Code-Sitzung. Bei langen Sitzungen kurz zusammenfassen bzw. neu starten.
 
 ---
