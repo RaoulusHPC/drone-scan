@@ -1,4 +1,4 @@
-# Profile for 8 GB GPUs (e.g. RTX 2070 SUPER / GTX 1080 development machines).
+# Profile for 8 GB GPUs (8 GiB cards).
 # 6.5 GiB leaves room for CUDA context and a display on the same card.
 # Stage values are provisional and get calibrated in spike KAN-19.
 vram_limit_gb: 6.5

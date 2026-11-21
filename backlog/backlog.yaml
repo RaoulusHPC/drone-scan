@@ -67,7 +67,7 @@ stories:
     so: "die Software auf jedem Ubuntu-Laptop mit NVIDIA-GPU gleich läuft"
     ac:
       - "`docker compose build` erzeugt Images `worker` (CUDA 12.6, PyTorch < 2.15 cu126, gsplat gebaut für sm_61 und sm_75) und `colmap` (CUDA-Architekturen 61;75)."
-      - "`docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1080 (6, 1) ohne Kompatibilitätswarnung."
+      - "`docker compose run worker python -c 'import torch; print(torch.cuda.get_device_capability())'` läuft auf der GTX 1060 (6, 1) ohne Kompatibilitätswarnung."
       - "README beschreibt Voraussetzungen (Treiber, NVIDIA Container Toolkit) inkl. Prüfbefehl."
     prio: Must
     sp: 5
@@ -77,12 +77,12 @@ stories:
   - id: US-004
     epic: EP-01
     type: Task
-    title: "Spike: COLMAP + gsplat auf GTX 1080 (6-GB-Grenze) mit Smartphone-Video"
+    title: "Spike: COLMAP + gsplat auf GTX 1060 (6-GiB-Budget) mit Smartphone-Video"
     as: P5
-    want: "nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1080 im 6-GB-Budget der RTX 2060 rekonstruierbar ist"
+    want: "nachweisen, dass ein Raum aus einem Handyvideo auf der GTX 1060 im 6-GiB-Budget der RTX 2060 rekonstruierbar ist"
     so: "das Hauptrisiko (R-01, R-03) vor der Umsetzung bewertet ist"
     ac:
-      - "3 Referenzräume (hell/texturiert, weiße Wände, Küche/Bad mit Spiegel) mit dem Smartphone aufgenommen; Verarbeitung auf der GTX 1080 mit 5,5-GB-Grenze."
+      - "3 Referenzräume (hell/texturiert, weiße Wände, Küche/Bad mit Spiegel) mit dem Smartphone aufgenommen; Verarbeitung auf der GTX 1060 mit 5,0-GiB-Allocator-Grenze (RTX 2070 SUPER nur nach Zustimmung des POs)."
       - "gsplat-Training auf Pascal (sm_61, fp32) nachgewiesen oder Fallback dokumentiert (ADR-0010, Risiko R-13)."
       - "Je Raum dokumentiert: registrierte Frames (%), Laufzeit je Stufe, Peak-VRAM, subjektive Qualität (Screenshots)."
       - "Ergebnisbericht `docs/spikes/spike-01.md` mit Empfehlung für Profilparameter `low_vram_6gb`."
@@ -197,7 +197,7 @@ stories:
     so: "Regressionen in der Pipeline sofort sichtbar werden"
     ac:
       - "`make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat."
-      - "`make test-gpu` läuft mit 5,5-GB-Grenze; Überschreitung lässt den Test fehlschlagen."
+      - "`make test-gpu` läuft mit 5,0-GiB-Allocator-Grenze auf der GTX 1060; Überschreitung lässt den Test fehlschlagen."
       - "Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert."
     prio: Must
     sp: 3
@@ -438,7 +438,7 @@ stories:
     want: "aus den Kameraposen eine fotorealistische 3D-Szene"
     so: "Interessenten die Räume virtuell begehen können"
     ac:
-      - "Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GB (Q-2)."
+      - "Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GiB gesamt pro Prozess (Q-2)."
       - "Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`."
       - "OOM → automatische Wiederholung mit kleinerem Profil (einmal)."
       - "Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert)."

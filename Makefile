@@ -2,7 +2,9 @@
 # Recipes must be indented with tabs.
 
 UV ?= uv
-VRAM_LIMIT_GB ?= 5.5
+VRAM_LIMIT_GB ?= 5.0
+# GPU tests run on the GTX 1060 only; the RTX 2070 SUPER (index 1) needs the PO's consent (CLAUDE.md).
+GPU_DEVICES ?= 0
 
 .DEFAULT_GOAL := help
 .PHONY: help setup lint format typecheck test check test-gpu smoke bench viewer-dev
@@ -33,9 +35,10 @@ test: ## CPU tests (no gpu, no bench)
 # The license gate (CLAUDE.md) is added to `check` with KAN-23 (US-008).
 check: lint typecheck test ## Run before every PR: lint, types, CPU tests
 
-test-gpu: ## GPU tests with VRAM limit
+test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
 	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
-	DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
+	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) \
+		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
 
 smoke: ## Pipeline on data/samples/kurz.mp4
 	@echo "make smoke: noch nicht verfügbar – kommt mit den Pipeline-Stufen (M1)." >&2; exit 1

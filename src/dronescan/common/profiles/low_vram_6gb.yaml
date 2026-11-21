@@ -1,4 +1,4 @@
-# Standard profile for the target hardware: RTX 2060, 6 GB (Q-2: peak <= 5.5 GB per process).
+# Standard profile for the target hardware: RTX 2060, 6 GiB (Q-2: peak <= 5.5 GiB per process).
 # vram_limit_gb caps only the PyTorch allocator (GiB); the CUDA context (~0.3-0.5 GiB)
 # comes on top, hence 5.0. Stage values are provisional and get calibrated in spike KAN-19.
 vram_limit_gb: 5.0
@@ -8,6 +8,6 @@ sfm:
   max_image_edge_px: 1600
 splat:
   max_iterations: 30000
-  max_gaussians: 1000000 # raise to 1.5M only if KAN-19 measures <= 5.5 GB in total
+  max_gaussians: 1000000 # raise to 1.5M only if KAN-19 measures <= 5.5 GiB in total
 search:
   detector_batch_size: 4
