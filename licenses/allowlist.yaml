@@ -1,0 +1,27 @@
+# License allowlist (ADR-0007, ADR-0011). Checked by `make license-gate` (part of `make check`/CI).
+# Changes to this file are always merged by the PO.
+
+# SPDX ids allowed for runtime and dev dependencies.
+licenses:
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - Apache-2.0
+  - ISC
+  - MPL-2.0
+  - PSF-2.0 # PO decision 2026-11-21 (typing-extensions, distlib)
+  - LGPL-2.1-only # LGPL only with dynamic linking / unmodified packages
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+
+# Additionally allowed for model weights and data in models.lock (ADR-0007: CC-BY-4.0 for data).
+data_licenses:
+  - CC-BY-4.0
+
+# Packages whose metadata has no precise SPDX id; value verified against the LICENSE file.
+overrides:
+  nodeenv:
+    license: BSD-3-Clause
+    source: https://github.com/ekalinin/nodeenv/blob/master/LICENSE
+    checked: 2026-11-21

@@ -1,0 +1,52 @@
+# License denylist (ADR-0007). Anything matching here fails `make license-gate`.
+# Changes to this file are always merged by the PO.
+
+# Regex patterns (case-insensitive) for license texts/ids that restrict use.
+license_patterns:
+  - '(^|[^a-z])NC([^a-z]|$)' # CC-BY-NC-*, "NC"
+  - 'non[- ]?commercial'
+  - 'research[- ]?only'
+  - 'research purposes'
+  - 'academic (use|purposes)'
+  - 'evaluation only'
+
+# Copyleft licenses: only as a separate process/container, never in the Python runtime deps
+# or imported from src/ (ADR-0007, CLAUDE.md rule 1).
+copyleft:
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - AGPL-3.0-only
+  - AGPL-3.0-or-later
+
+# Packages (Python or npm, normalised names) that must never be dependencies.
+packages:
+  - name: diff-gaussian-rasterization
+    reason: Inria 3D Gaussian Splatting rasterizer, non-commercial license
+  - name: gaussian-splatting
+    reason: Inria 3D Gaussian Splatting reference code, non-commercial license
+  - name: simple-knn
+    reason: part of the Inria 3DGS code base, non-commercial license
+  - name: dust3r
+    reason: DUSt3R code and weights CC BY-NC-SA 4.0
+  - name: mast3r
+    reason: MASt3R code and weights CC BY-NC-SA 4.0
+
+# Models/weights (regex on the models.lock name, case-insensitive).
+models:
+  - pattern: 'superpoint'
+    reason: SuperPoint weights (Magic Leap) are non-commercial; use ALIKED + LightGlue
+  - pattern: 'dust3r'
+    reason: DUSt3R weights CC BY-NC-SA 4.0
+  - pattern: 'mast3r'
+    reason: MASt3R weights CC BY-NC-SA 4.0
+  - pattern: 'inria|3dgs[-_ ]?original'
+    reason: Inria 3DGS weights/checkpoints are non-commercial
+
+# Python modules of copyleft tools that may only run in their own container/process,
+# never be imported from src/ (e.g. OpenMVS bindings, GPL mesh tools).
+container_only_modules:
+  - pymeshlab # GPL-3.0
+  - openmvs # AGPL-3.0 (OpenMVS)
+  - pyopenmvs

@@ -1,0 +1,4 @@
+# Model registry (ADR-0007): one entry per model weight file, checked by `make license-gate`.
+# For models the license of the WEIGHTS decides. Fields: name, version, sha256, license, source.
+# Entries are added with `drone-scan models pull` (KAN-24).
+models: []
