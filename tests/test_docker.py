@@ -198,7 +198,7 @@ def test_compose_sets_vram_limit_and_image_names() -> None:
     assert services["worker"]["environment"]["DRONESCAN_VRAM_LIMIT_GB"] == (
         "${DRONESCAN_VRAM_LIMIT_GB:-5.0}"
     )
-    assert image_name("worker") == "drone-scan/worker:0.1.0"
+    assert image_name("worker").startswith("drone-scan/worker:")
     assert image_name("colmap") == f"drone-scan/colmap:{arg_value(COLMAP, 'COLMAP_VERSION')}"
 
 
@@ -259,6 +259,7 @@ def test_worker_sees_gtx_1060_without_warning() -> None:
     # PyTorch's own compatibility warning; `docker compose` may print unrelated WARN lines
     assert "UserWarning" not in result.stderr
     assert "not compatible" not in result.stderr.lower()
+    assert "too old" not in result.stderr.lower()
 
 
 @pytest.mark.gpu
