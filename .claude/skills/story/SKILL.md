@@ -10,5 +10,5 @@ Work on Jira story $ARGUMENTS following docs/projektmanagement.md section 6:
 4. Post the plan as a comment on the Jira story and wait for the user's approval.
 5. After approval: create branch feat/<KEY>-<slug>, write tests first, implement, run `make check` (and `make test-gpu` for GPU code).
 6. Run subagent `reviewer` (plus `license-auditor`, `vram-guard`, `flight-safety` where relevant) and fix BLOCKERs.
-7. Open the PR titled "<KEY>: <summary>", move the story to "In Review", comment with PR link and measured values (runtime, peak VRAM).
+7. Open the PR titled "<KEY>: <summary>", move the story to "In Review" (Jira status "Wird überprüft"; pick the transition by its target status), comment with PR link and measured values (runtime, peak VRAM).
 Never set the story to Done yourself.
