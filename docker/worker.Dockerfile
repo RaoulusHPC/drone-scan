@@ -35,17 +35,23 @@ RUN uv pip install --python /opt/venv/bin/python \
         --index-url https://download.pytorch.org/whl/cu126 "torch==${TORCH_VERSION}+cu126"
 
 # gsplat compiled ahead of time for both architectures (no JIT on the user's machine).
+# Pinned patch (ADR-0010): C++20 for torch 2.14 headers and a Pascal (sm_61) fallback for
+# cg::labeled_partition, which needs sm_70+. `git apply --check` fails the build if it no
+# longer applies cleanly (e.g. after a gsplat update).
+COPY docker/patches/gsplat-v1.5.3-pascal.patch /tmp/gsplat-pascal.patch
 RUN uv pip install --python /opt/venv/bin/python setuptools wheel ninja \
     && git clone --branch "${GSPLAT_VERSION}" --depth 1 --recurse-submodules --shallow-submodules \
         https://github.com/nerfstudio-project/gsplat.git /tmp/gsplat \
     && test "$(git -C /tmp/gsplat rev-parse HEAD)" = "${GSPLAT_COMMIT}" \
     && cd /tmp/gsplat \
+    && git apply --check /tmp/gsplat-pascal.patch \
+    && git apply /tmp/gsplat-pascal.patch \
     && TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" MAX_JOBS="${MAX_JOBS}" \
         uv pip install --python /opt/venv/bin/python --no-build-isolation . \
     && mkdir -p /opt/notices/gsplat \
     && cp LICENSE /opt/notices/gsplat/LICENSE \
     && cp gsplat/cuda/csrc/third_party/glm/copying.txt /opt/notices/gsplat/glm.copying.txt \
-    && rm -rf /tmp/gsplat
+    && rm -rf /tmp/gsplat /tmp/gsplat-pascal.patch
 
 # ---------- runtime stage ----------
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime

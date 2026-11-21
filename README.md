@@ -22,7 +22,9 @@ Die Pipeline läuft in zwei Containern: `worker` (PyTorch 2.14 + CUDA 12.6 + gsp
 
 1. **Ubuntu** 22.04/24.04 mit **NVIDIA-Treiber ≥ 560** (unterstützt CUDA 12.6). Prüfen mit `nvidia-smi`.
 2. **Docker Engine** mit **Compose-Plugin** (`docker compose version`).
-3. **NVIDIA Container Toolkit**, eingerichtet mit `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`. Prüfen mit `docker info | grep -i nvidia`.
+3. **NVIDIA Container Toolkit** (Paketquelle: [NVIDIA-Installationsanleitung](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)), eingerichtet mit `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`. Prüfen mit `docker run --rm --runtime=nvidia --gpus all nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi` (zeigt die GPU) und `docker info | grep -i nvidia` (Runtime `nvidia`). Die Compose-Datei nutzt `runtime: nvidia`; auf manchen Systemen (z. B. Ubuntu 26.04 mit Docker 29) scheitert die GPU sonst mit „Failed to initialize NVML: Unknown Error“.
+
+   *Fehlerbild:* `apt` kennt `nvidia-container-toolkit` nicht, obwohl es früher installiert war. Ein Ubuntu-Upgrade schaltet die NVIDIA-Paketquelle ab (`/etc/apt/sources.list.d/nvidia-container-toolkit.list.disabled`). Abhilfe: Paketquelle laut Anleitung neu eintragen, dann `sudo apt-get update`.
 
 **Prüfbefehl:**
 

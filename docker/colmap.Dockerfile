@@ -2,7 +2,8 @@
 # COLMAP 4.2.1 (BSD-3-Clause) built for sm_61 (GTX 1060) and sm_75 (RTX 2060).
 # Runs as a separate process/container (stage `sfm`); headless: no GUI/Qt, no CGAL (GPL parts),
 # OpenBLAS instead of Intel MKL (proprietary). Offline: no runtime downloads, no fetched ONNX
-# runtime (CLAUDE.md rule 3); no AGPL LSD detector. Build: `docker compose build colmap`.
+# runtime (CLAUDE.md rule 3); no AGPL LSD detector. COLMAP 4.2.1 still links GLEW/OpenGL
+# (libglew2.2, libopengl0) although OPENGL_ENABLED=OFF; the binary needs them to start. Build: `docker compose build colmap`.
 ARG CUDA_VERSION=12.6.3
 ARG UBUNTU_VERSION=24.04
 
@@ -16,8 +17,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git ca-certificates cmake ninja-build build-essential \
         libboost-program-options-dev libboost-graph-dev libboost-system-dev \
-        libeigen3-dev libopenimageio-dev libmetis-dev libgoogle-glog-dev \
-        libsqlite3-dev libceres-dev libcurl4-openssl-dev libssl-dev libopenblas-dev \
+        libeigen3-dev libopenimageio-dev openimageio-tools libmetis-dev libgoogle-glog-dev \
+        libsqlite3-dev libglew-dev libceres-dev libcurl4-openssl-dev libssl-dev libopenblas-dev \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /usr/include/opencv4  # OpenImageIO's CMake config expects this directory
 RUN git clone --branch "${COLMAP_VERSION}" --depth 1 https://github.com/colmap/colmap.git /colmap \
@@ -52,7 +53,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libboost-program-options1.83.0 libgomp1 libmetis5 libceres4t64 \
         libopenimageio2.4t64 libgoogle-glog0v6t64 libsqlite3-0 libcurl4t64 libssl3t64 \
-        libopenblas0 \
+        libopenblas0 libglew2.2 libopengl0 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /colmap-install/ /usr/local/
 COPY --from=build /colmap-notices/ /usr/share/doc/colmap/

@@ -23,3 +23,23 @@ PyTorch hat Pascal aus den CUDA-12.8/12.9- und CUDA-13-Builds entfernt. Nur die 
 - Weil die GTX 1060 auch den Bildschirm steuert, sind nur etwa 4,8 GiB frei, also weniger als auf der Zielkarte. Volle Läufe im Profil `low_vram_6gb` (5,0 GiB + Kontext) passen dort nicht. Abhilfe im Spike US-004: Bildschirm an eine andere Grafikausgabe hängen, kleineres Testprofil verwenden oder nach Zustimmung die RTX 2070 SUPER nutzen.
 - Toolchain eingefroren auf CUDA 12.6 / PyTorch ≤ 2.14 → Sicherheits- und Feature-Updates enden; spätestens bei M5 GPU-Wechsel prüfen (Risiko R-13)
 - gsplat-Build für sm_61 muss im Spike US-004 nachgewiesen werden; Fallback: Training im Container auf Turing-Hardware
+
+## Nachtrag 2026-11-21: gsplat-Patch für Pascal (KAN-18, PO-Entscheidung)
+**Befund beim Image-Build:** gsplat lässt sich unverändert nicht für sm_61 bauen.
+- Seit v1.0 nutzen die Backward-Kernels der Projektion `cooperative_groups::labeled_partition`. Betroffen sind 3DGS und 2DGS, jeweils fused und packed. CUDA stellt diese Funktion erst ab sm_70 bereit (Match-Collectives). Der Guard `#if __CUDA_ARCH__ >= 700` ist im gsplat-Code auskommentiert. Geprüft: v1.0.0 bis v1.5.3.
+- Zusätzlich brauchen die Header von PyTorch 2.14 C++20. gsplat erzwingt für nvcc aber `-std=c++17`.
+
+**Entscheidung (PO, Option A):** gsplat v1.5.3 wird mit einem gepinnten Patch gebaut: `docker/patches/gsplat-v1.5.3-pascal.patch`.
+- `setup.py`: `-std=c++17` → `-std=c++20`.
+- `Utils.cuh`: neue Hilfsfunktion `labeled_partition_compat`. In den 4 betroffenen Kernel-Dateien ersetzt sie an 8 Stellen `cg::labeled_partition`.
+  - **Ab sm_70** (also sm_75, RTX 2060) ruft sie unverändert `cg::labeled_partition` auf. Der Codepfad der Zielhardware bleibt gleich.
+  - **Unter sm_70** (sm_61, GTX 1060) bildet jeder Thread eine eigene Gruppe der Größe 1 (`cg::tiled_partition<1>`). Die Warp-Summe entfällt, und jeder Thread addiert seine Gradienten direkt per `atomicAdd`. Die Summe ist dieselbe, nur die Reihenfolge der Gleitkomma-Additionen ändert sich. Auf Pascal ist das etwas langsamer, weil mehr Atomics anfallen.
+- Das Dockerfile prüft den Patch mit `git apply --check`. Passt er nicht mehr sauber (z. B. nach einem gsplat-Update), schlägt der Build fehl.
+
+**Nachweis:**
+- CPU-Test `test_gsplat_patch_keeps_the_sm70_path_unchanged`: Der Patch ändert nur die 8 Aufrufe und die C++-Version, und der Zweig ab sm_70 ruft `cg::labeled_partition` auf.
+- GPU-Test `test_patched_gsplat_gradients_match_reference_on_gtx_1060`: Die Gradienten auf der GTX 1060 stimmen mit der PyTorch-Referenz von gsplat überein. Toleranzen wie in gsplats eigenen Tests, packed vs. fused mit 1e-3 relativ zum Maximalwert. Läuft mit 5,0-GiB-Allocator-Grenze.
+
+**Pflege:** Bei jedem gsplat-Update muss der Patch neu erstellt und beide Tests müssen wiederholt werden. Unterstützt gsplat Pascal irgendwann selbst, entfällt der Patch. Ein Upstream-Issue oder -PR wird nicht gestellt; eine öffentliche Aktion ist nicht freigegeben.
+
+Damit ist der offene Punkt „gsplat-Build für sm_61 muss im Spike US-004 nachgewiesen werden“ für den **Build** erledigt. Laufzeit und VRAM des Trainings auf der 1060 weist weiterhin der Spike nach.

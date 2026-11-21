@@ -3,7 +3,11 @@
 # reserved for another project and may only be used with the PO's prior consent.
 name: drone-scan
 
+# `runtime: nvidia` (registered by `nvidia-ctk runtime configure`) is needed on some hosts, e.g.
+# Ubuntu 26.04 with Docker 29 and the systemd cgroup driver: with the default runc runtime the
+# container sees the GPU device files but NVML fails ("Failed to initialize NVML: Unknown Error").
 x-gpu: &gpu
+  runtime: nvidia
   deploy:
     resources:
       reservations:

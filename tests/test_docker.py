@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import random
 import re
 import shutil
+import struct
 import subprocess
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "docker" / "worker.Dockerfile"
 COLMAP = ROOT / "docker" / "colmap.Dockerfile"
 COMPOSE = ROOT / "compose.yaml"
+GSPLAT_PATCH = ROOT / "docker" / "patches" / "gsplat-v1.5.3-pascal.patch"
+GSPLAT_CHECK = ROOT / "docker" / "checks" / "gsplat_grads.py"
 
 
 def compose() -> dict[str, Any]:
@@ -99,6 +105,47 @@ def test_runtime_image_ships_license_notices(dockerfile: Path, notice: str) -> N
     assert notice in final_stage
 
 
+def test_gsplat_patch_is_applied_strictly() -> None:
+    """Given the pinned gsplat Pascal patch,
+    When the worker image is built,
+    Then the patch is checked with `git apply --check` (a stale patch fails the build).
+    """
+    text = WORKER.read_text(encoding="utf-8")
+    assert "docker/patches/gsplat-v1.5.3-pascal.patch" in text
+    assert "git apply --check /tmp/gsplat-pascal.patch" in text
+    assert arg_value(WORKER, "GSPLAT_VERSION") == "v1.5.3"
+
+
+def _patch_lines(sign: str) -> list[str]:
+    lines = GSPLAT_PATCH.read_text(encoding="utf-8").splitlines()
+    return [line[1:] for line in lines if line.startswith(sign) and not line.startswith(sign * 3)]
+
+
+def test_gsplat_patch_keeps_the_sm70_path_unchanged() -> None:
+    """Given the gsplat Pascal patch (ADR-0010),
+    When its changes are read,
+    Then the kernels only swap cg::labeled_partition for labeled_partition_compat, which
+    calls cg::labeled_partition unchanged for __CUDA_ARCH__ >= 700 (sm_75 = RTX 2060), and
+    only falls back to single-thread groups below sm_70; besides that only C++17 -> C++20.
+    """
+    removed, added = _patch_lines("-"), _patch_lines("+")
+    kernel_removed = [line for line in removed if "labeled_partition" in line]
+    assert len(kernel_removed) == 8
+    assert [
+        line.replace("cg::labeled_partition(", "labeled_partition_compat(")
+        for line in kernel_removed
+    ] == [line for line in added if "labeled_partition_compat(warp" in line]
+    assert set(removed) - set(kernel_removed) == {
+        '    nvcc_flags += ["-O3", "--use_fast_math", "-std=c++17"]'
+    }
+
+    helper = "\n".join(added)
+    fallback, sm70 = helper.split("#else", 1)
+    assert "#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700" in fallback
+    assert "cg::tiled_partition<1>(tile)" in fallback
+    assert "return cg::labeled_partition(tile, label);" in sm70.split("#endif", 1)[0]
+
+
 @pytest.mark.parametrize("dockerfile", [WORKER, COLMAP])
 def test_runtime_stage_runs_as_non_root(dockerfile: Path) -> None:
     """Given the final image stage,
@@ -122,6 +169,7 @@ def test_compose_defines_worker_and_colmap_on_gtx_1060() -> None:
         assert devices[0]["capabilities"] == ["gpu"]
         assert devices[0]["device_ids"] == ["${DRONESCAN_GPU_DEVICE:-0}"]
         assert services[name]["environment"]["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+        assert services[name]["runtime"] == "nvidia"
 
 
 def test_compose_mounts_workspace_and_data() -> None:
@@ -167,3 +215,136 @@ def test_worker_sees_gtx_1060_without_warning() -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith("(6, 1)")
     assert "warn" not in result.stderr.lower()
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_patched_gsplat_gradients_match_reference_on_gtx_1060() -> None:
+    """Given the worker image with the Pascal-patched gsplat and the GTX 1060 (device 0),
+    When the projection backward pass (3DGS/2DGS, fused/packed) runs on synthetic data,
+    Then its gradients match gsplat's PyTorch reference and packed matches fused within
+    tolerances, under the 5.0 GiB allocator limit (ADR-0010, CLAUDE.md rule 2).
+    """
+    cmd = [
+        "docker",
+        "compose",
+        "run",
+        "--rm",
+        "-T",
+        "-e",
+        "DRONESCAN_VRAM_LIMIT_GB=5.0",
+        "worker",
+        "python",
+        "-",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        input=GSPLAT_CHECK.read_text(encoding="utf-8"),
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr[-4000:]
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["ok"] is True
+    assert report["capability"] == [6, 1]
+    assert report["peak_vram_mb"] < 5.0 * 1024
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_colmap_binary_starts_with_all_libraries() -> None:
+    """Given the built colmap image (needs the image, not the GPU: marked gpu like the others),
+    When the colmap binary's dynamic libraries are resolved and `colmap help` runs,
+    Then no library is missing and it prints COLMAP 4.2.1 with CUDA, SiftGPU's host
+    (CUDA build) and no LSD symbols.
+    """
+    ldd = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--entrypoint",
+            "sh",
+            "drone-scan/colmap:4.2.1",
+            "-c",
+            "ldd /usr/local/bin/colmap",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert ldd.returncode == 0, ldd.stderr
+    assert "not found" not in ldd.stdout, ldd.stdout
+
+    result = subprocess.run(
+        ["docker", "compose", "run", "--rm", "colmap", "colmap", "help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert "COLMAP 4.2.1" in result.stdout
+    assert "with CUDA" in result.stdout
+
+
+def _synthetic_png(path: Path, width: int = 640, height: int = 480) -> None:
+    """Grey noise image (no real recordings in tests, CLAUDE.md rule 3)."""
+    rng = random.Random(0)
+    raw = b"".join(b"\x00" + bytes(rng.randrange(256) for _ in range(width)) for _ in range(height))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_colmap_extracts_sift_features_on_the_gpu(tmp_path: Path) -> None:
+    """Given the colmap image (CUDA 61;75) and the GTX 1060 (device 0),
+    When SIFT features are extracted from a synthetic image with use_gpu=1,
+    Then the GPU extractor runs and finds features, i.e. the sm_61 kernels work.
+    """
+    (tmp_path / "images").mkdir()
+    _synthetic_png(tmp_path / "images" / "synth.png")
+    cmd = [
+        "docker",
+        "compose",
+        "run",
+        "--rm",
+        "-v",
+        f"{tmp_path}:/work",
+        "colmap",
+        "colmap",
+        "feature_extractor",
+        "--database_path",
+        "/work/db.db",
+        "--image_path",
+        "/work/images",
+        "--FeatureExtraction.use_gpu",
+        "1",
+        "--FeatureExtraction.gpu_index",
+        "0",
+    ]
+    result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300, check=False)
+
+    log = result.stdout + result.stderr
+    assert result.returncode == 0, log[-2000:]
+    assert "Creating SIFT GPU feature extractor" in log
+    match = re.search(r"Features:\s+(\d+) \(SIFT\)", log)
+    assert match and int(match.group(1)) > 0, log[-2000:]

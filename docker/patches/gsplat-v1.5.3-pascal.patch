@@ -1,0 +1,126 @@
+diff --git a/gsplat/cuda/csrc/Projection2DGSFused.cu b/gsplat/cuda/csrc/Projection2DGSFused.cu
+index 9d6e1c5..ee8eeb9 100644
+--- a/gsplat/cuda/csrc/Projection2DGSFused.cu
++++ b/gsplat/cuda/csrc/Projection2DGSFused.cu
+@@ -433,7 +433,7 @@ __global__ void projection_2dgs_fused_bwd_kernel(
+     // #if __CUDA_ARCH__ >= 700
+     // write out results with warp-level reduction
+     auto warp = cg::tiled_partition<32>(cg::this_thread_block());
+-    auto warp_group_g = cg::labeled_partition(warp, gid);
++    auto warp_group_g = labeled_partition_compat(warp, gid);
+     if (v_means != nullptr) {
+         warpSum(v_mean, warp_group_g);
+         if (warp_group_g.thread_rank() == 0) {
+@@ -460,7 +460,7 @@ __global__ void projection_2dgs_fused_bwd_kernel(
+     }
+ 
+     if (v_viewmats != nullptr) {
+-        auto warp_group_c = cg::labeled_partition(warp, cid);
++        auto warp_group_c = labeled_partition_compat(warp, cid);
+         warpSum(v_R, warp_group_c);
+         warpSum(v_t, warp_group_c);
+         if (warp_group_c.thread_rank() == 0) {
+diff --git a/gsplat/cuda/csrc/Projection2DGSPacked.cu b/gsplat/cuda/csrc/Projection2DGSPacked.cu
+index 4667dc7..8f5f0ca 100644
+--- a/gsplat/cuda/csrc/Projection2DGSPacked.cu
++++ b/gsplat/cuda/csrc/Projection2DGSPacked.cu
+@@ -414,7 +414,7 @@ __global__ void projection_2dgs_packed_bwd_kernel(
+         // write out results with dense layout
+         // #if __CUDA_ARCH__ >= 700
+         // write out results with warp-level reduction
+-        auto warp_group_g = cg::labeled_partition(warp, gid);
++        auto warp_group_g = labeled_partition_compat(warp, gid);
+         if (v_means != nullptr) {
+             warpSum(v_mean, warp_group_g);
+             if (warp_group_g.thread_rank() == 0) {
+@@ -441,7 +441,7 @@ __global__ void projection_2dgs_packed_bwd_kernel(
+     }
+ 
+     if (v_viewmats != nullptr) {
+-        auto warp_group_c = cg::labeled_partition(warp, cid);
++        auto warp_group_c = labeled_partition_compat(warp, cid);
+         warpSum(v_R, warp_group_c);
+         warpSum(v_t, warp_group_c);
+         if (warp_group_c.thread_rank() == 0) {
+diff --git a/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu b/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
+index 09997d0..3b40539 100644
+--- a/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
++++ b/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu
+@@ -469,7 +469,7 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+     // #if __CUDA_ARCH__ >= 700
+     // write out results with warp-level reduction
+     auto warp = cg::tiled_partition<32>(cg::this_thread_block());
+-    auto warp_group_g = cg::labeled_partition(warp, gid);
++    auto warp_group_g = labeled_partition_compat(warp, gid);
+     if (v_means != nullptr) {
+         warpSum(v_mean, warp_group_g);
+         if (warp_group_g.thread_rank() == 0) {
+@@ -513,7 +513,7 @@ __global__ void projection_ewa_3dgs_fused_bwd_kernel(
+         }
+     }
+     if (v_viewmats != nullptr) {
+-        auto warp_group_c = cg::labeled_partition(warp, cid);
++        auto warp_group_c = labeled_partition_compat(warp, cid);
+         warpSum(v_R, warp_group_c);
+         warpSum(v_t, warp_group_c);
+         if (warp_group_c.thread_rank() == 0) {
+diff --git a/gsplat/cuda/csrc/ProjectionEWA3DGSPacked.cu b/gsplat/cuda/csrc/ProjectionEWA3DGSPacked.cu
+index 6a36854..e4722a1 100644
+--- a/gsplat/cuda/csrc/ProjectionEWA3DGSPacked.cu
++++ b/gsplat/cuda/csrc/ProjectionEWA3DGSPacked.cu
+@@ -591,7 +591,7 @@ __global__ void projection_ewa_3dgs_packed_bwd_kernel(
+         // write out results with dense layout
+         // #if __CUDA_ARCH__ >= 700
+         // write out results with warp-level reduction
+-        auto warp_group_g = cg::labeled_partition(warp, gid);
++        auto warp_group_g = labeled_partition_compat(warp, gid);
+         if (v_means != nullptr) {
+             warpSum(v_mean, warp_group_g);
+             if (warp_group_g.thread_rank() == 0) {
+@@ -639,7 +639,7 @@ __global__ void projection_ewa_3dgs_packed_bwd_kernel(
+     }
+     // v_viewmats is always in dense layout
+     if (v_viewmats != nullptr) {
+-        auto warp_group_c = cg::labeled_partition(warp, cid);
++        auto warp_group_c = labeled_partition_compat(warp, cid);
+         warpSum(v_R, warp_group_c);
+         warpSum(v_t, warp_group_c);
+         if (warp_group_c.thread_rank() == 0) {
+diff --git a/gsplat/cuda/include/Utils.cuh b/gsplat/cuda/include/Utils.cuh
+index 2809d93..48c3253 100644
+--- a/gsplat/cuda/include/Utils.cuh
++++ b/gsplat/cuda/include/Utils.cuh
+@@ -83,6 +83,20 @@ inline __device__ void covarW2C_VJP(
+ // Reduce
+ ///////////////////////////////
+ 
++// drone-scan Pascal patch (docker/patches/gsplat-v1.5.3-pascal.patch):
++// cg::labeled_partition needs match collectives (sm_70+). Below sm_70 every thread forms
++// its own group of size 1, so warpSum is a no-op and each thread adds its gradients with
++// atomicAdd itself (same sum, different summation order). sm_70+ keeps the original path.
++template <class TileT, class LabelT>
++inline __device__ auto labeled_partition_compat(const TileT &tile, LabelT label) {
++#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700
++    (void)label;
++    return cg::tiled_partition<1>(tile);
++#else
++    return cg::labeled_partition(tile, label);
++#endif
++}
++
+ template <uint32_t DIM, class WarpT>
+ inline __device__ void warpSum(float *val, WarpT &warp) {
+ #pragma unroll
+diff --git a/setup.py b/setup.py
+index f152008..741309c 100644
+--- a/setup.py
++++ b/setup.py
+@@ -69,7 +69,7 @@ def get_extensions():
+ 
+     nvcc_flags = os.getenv("NVCC_FLAGS", "")
+     nvcc_flags = [] if nvcc_flags == "" else nvcc_flags.split(" ")
+-    nvcc_flags += ["-O3", "--use_fast_math", "-std=c++17"]
++    nvcc_flags += ["-O3", "--use_fast_math", "-std=c++20"]
+     if LINE_INFO:
+         nvcc_flags += ["-lineinfo"]
+     if torch.version.hip:
