@@ -32,7 +32,7 @@ Der gesamte eigene Code (`src/`, `tests/`, `tools/`, später `viewer/` und `flig
   - MPL-2.0 über die „Secondary License“-Klausel (§3.3), sofern die Datei nicht als „Incompatible With Secondary Licenses“ markiert ist
 
   Der License-Audit zu KAN-16 fand nur solche Lizenzen. Die bisherige Lizenzpolitik muss also nicht geändert werden.
-+ Der PO kann als alleiniger Rechteinhaber den Code zusätzlich unter einer kommerziellen Lizenz anbieten (Doppellizenzierung). Damit bleibt die Anforderung „kommerziell verwertbar“ aus ADR-0007 erfüllt.
++ Der PO kann als alleiniger Rechteinhaber den Code zusätzlich unter einer kommerziellen Lizenz anbieten (Doppellizenzierung). Damit bleibt die Anforderung „kommerziell verwertbar“ aus ADR-0007 erfüllt. *(Nachtrag 21.11.2026: Seit ADR-0012 sind NC-Komponenten erlaubt. Eine kommerzielle Lizenz bzw. Weitergabe setzt deshalb erst die Neuprüfung aller NC-Komponenten nach ADR-0012 Punkt 6 voraus.)*
 - **Quellcode-Hinweis im Netzbetrieb:** Server und Viewer zeigen einen Link zum Quellcode an (z. B. im Viewer-Menü und in der API-Doku). AGPL §13 verpflichtet dazu nur Betreiber **veränderter** Versionen. Wir machen es als Projektregel auch für die unveränderte Version, damit die Pflicht bei Änderungen nicht vergessen wird.
 - **PWA-Viewer:** Das an den Browser ausgelieferte JavaScript gilt als Weitergabe von Objektcode. Der zugehörige Quellcode muss verfügbar sein, also nicht-minifizierte Quellen bzw. Source Maps und Build-Anleitung. Das betrifft den Vite-Build.
 - **Export-Bundle (M4):** Das offline teilbare Viewer-Bundle ist eine Weitergabe. Es muss den Lizenztext und ein Quellcode-Angebot enthalten.
