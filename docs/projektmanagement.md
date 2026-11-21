@@ -32,7 +32,8 @@
 
 **Rollen**
 
-- **Product Owner (du):** priorisiert, nimmt ab und setzt Stories auf *Done*. Reviewt und mergt PRs, die nicht unter die Self-Merge-Regel fallen (§ 6). Freigabe echter Flüge erfolgt nur durch dich.
+- **Product Owner (du):** priorisiert und nimmt ab. Freigabe echter Flüge erfolgt nur durch dich.
+- **PM-Session (Claude, seit 21.11.2026):** separate Claude-Session als Projektmanager. Überwacht die Entwickler-Session, pflegt Jira (Sprints, Status, Aufräumen) und GitHub, prüft und mergt PRs, die nicht unter die Self-Merge-Regel fallen, setzt Stories nach dem Merge auf *Done* (beides vom PO dauerhaft delegiert) und bündelt Fragen an den PO. Anweisungen an Claude Code gibt sie per Session-Nachricht oder als Story-Kommentar mit Präfix `[PM]`.
 - **Claude Code:** plant (Plan Mode), implementiert, testet, schreibt Doku-Updates, schlägt ADRs vor und aktualisiert Jira-Status.
 - **Subagents (in `.claude/agents/`):** spezialisierte Prüfer (Lizenz, VRAM, Review, Flugsicherheit).
 
@@ -131,8 +132,8 @@ Lizenz-Themen:          project = KAN AND labels = compliance
 4. Claude Code: Branch feat/KAN-xx-kurzname, Tests zuerst (Akzeptanzkriterien), Implementierung
 5. Claude Code: make check (+ make test-gpu), Subagent "reviewer" + ggf. "license-auditor"/"vram-guard"
 6. Claude Code: PR "KAN-xx: <Titel>", Story → "In Review", Kommentar mit PR-Link
-7. Merge:       Claude Code selbst, wenn die Self-Merge-Regel erfüllt ist – sonst PO (Review, Merge)
-   PO:          Story → "Done"
+7. Merge:       Claude Code selbst, wenn die Self-Merge-Regel erfüllt ist – sonst PM-Session (eigene Prüfung, Merge)
+   PM-Session:  Story → "Done"
 8. Retro-Fund:  Neue Regel? → CLAUDE.md ergänzen (/retro)
 ```
 
@@ -142,9 +143,9 @@ Lizenz-Themen:          project = KAN AND labels = compliance
   1. `make check` grün, sobald vorhanden auch die CI. Bei GPU-Code zusätzlich `make test-gpu` (5,0-GiB-Grenze, GTX 1060).
   2. Subagent `reviewer` meldet keine BLOCKER. Je nach Änderung gilt das auch für `license-auditor` und `vram-guard`.
   3. Der PR ist konfliktfrei (`mergeable_state = clean`).
-  4. Der PR ändert **nichts** unter `flight/`, an `CLAUDE.md`, `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik, die Schutzmechanismen von Claude Code oder dessen eigene Regeln (einschließlich dieser Self-Merge-Regel) betreffen.
+  4. Der PR ändert **nichts** unter `flight/`, an `CLAUDE.md`, `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/` oder `licenses/`. Solche PRs mergt nie die Entwickler-Session selbst, weil sie Flugsicherheit, Lizenzpolitik, die Schutzmechanismen von Claude Code oder dessen eigene Regeln (einschließlich dieser Self-Merge-Regel) betreffen. Sie mergt die **PM-Session** nach eigener Prüfung (seit 21.11.2026 vom PO delegiert): Diff gelesen, CI grün, keine BLOCKER der zuständigen Subagents; bei `flight/` zusätzlich `flight-safety` ohne Befund. Grundsatzentscheidungen (z. B. Lizenzpolitik, neue Regeln) muss der PO vorher getroffen haben; der PR setzt sie nur um.
 
-  Den Jira-Status *Done* setzt weiterhin der PO. Nach dem Merge kommentiert Claude Code den Merge-Commit in der Story.
+  Den Jira-Status *Done* setzt die PM-Session (seit 21.11.2026 vom PO delegiert). Nach dem Merge kommentiert Claude Code den Merge-Commit in der Story.
 - **CI (KAN-17):** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push und Pull Request `uv sync --locked` und `make check` aus. Zeitlimit: 10 min, die Actions sind auf Commit-SHAs gepinnt. GPU-, Bench- und SITL-Tests laufen nicht in der CI. SITL-Tests werden ohne `DRONESCAN_SITL=1` übersprungen und lokal mit `make test-sitl` ausgeführt.
 - **Branch-Schutz `main`:** Der Statuscheck **„make check“** ist Pflicht und gilt auch für Admins, damit ein roter PR nicht gemergt werden kann, auch nicht per Self-Merge. Eingerichtet am 21.11.2026 nach dem Merge von KAN-17 per GitHub-API (`PUT /repos/RaoulusHPC/drone-scan/branches/main/protection`, Check an die GitHub-Actions-App gebunden). Prüfen mit `gh api repos/RaoulusHPC/drone-scan/branches/main/protection`, ändern in GitHub unter Settings → Branches.
 - **Kontextpflege:** Eine Story pro Claude-Code-Sitzung. Bei langen Sitzungen kurz zusammenfassen bzw. neu starten.
