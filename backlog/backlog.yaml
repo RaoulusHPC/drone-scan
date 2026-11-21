@@ -955,3 +955,97 @@ stories:
     ms: m5
     labels: [flight, spike]
     deps: [US-054, US-055]
+
+  # ---------------- Nachträge 21.11.2026 (ADR-0011, Review-Funde KAN-16/KAN-22) ----------------
+  - id: US-059
+    epic: EP-11
+    type: Story
+    title: "Quellcode-Hinweis in Server und Viewer (AGPL)"
+    as: P3
+    want: "im Viewer und in der API-Doku einen Link zum Quellcode sehen"
+    so: "die AGPL-Pflichten (ADR-0011) auch bei Netzbetrieb erfüllt sind"
+    ac:
+      - "Viewer-Menü und OpenAPI-Beschreibung zeigen Lizenz (AGPL-3.0-or-later) und einen konfigurierbaren Quellcode-Link."
+      - "Der Vite-Build liefert Source Maps bzw. nicht-minifizierte Quellen aus oder verlinkt sie."
+      - "Ein Test prüft, dass der Link in API und Viewer vorhanden ist."
+    prio: Should
+    sp: 1
+    ms: m1
+    labels: [compliance, server, viewer, claude-code]
+    deps: [US-028, US-037]
+  - id: US-060
+    epic: EP-07
+    type: Story
+    title: "Lizenztext und Quellcode-Angebot im Offline-Bundle"
+    as: P2
+    want: "dass das geteilte Offline-Bundle Lizenz und Quellcode-Angebot enthält"
+    so: "die Weitergabe AGPL-konform ist (ADR-0011)"
+    ac:
+      - "Das Bundle enthält `LICENSE`, die Lizenzhinweise der Drittkomponenten und ein Quellcode-Angebot (Link + Version)."
+      - "Ein Test prüft die Dateien im erzeugten Bundle."
+    prio: Must
+    sp: 1
+    ms: m4
+    labels: [compliance, export, claude-code]
+    deps: [US-042]
+  - id: US-061
+    epic: EP-11
+    type: Task
+    title: "CLA und CONTRIBUTING.md"
+    as: P5
+    want: "einen Contributor License Agreement und eine Beitragsanleitung"
+    so: "externe Beiträge angenommen werden können, ohne die Doppellizenzierung (ADR-0011) zu verhindern"
+    ac:
+      - "`CONTRIBUTING.md` beschreibt Ablauf, Konventionen und CLA-Pflicht."
+      - "CLA-Text liegt vor und ist rechtlich geprüft (Rechtsberatung vor M4)."
+    prio: Should
+    sp: 1
+    ms: m1
+    labels: [compliance]
+    deps: []
+  - id: US-062
+    epic: EP-11
+    type: Task
+    title: "SPDX-Lizenzheader in Quelldateien"
+    as: P5
+    want: "in jeder Quelldatei `SPDX-License-Identifier: AGPL-3.0-or-later`"
+    so: "die Lizenz auch für einzelne Dateien eindeutig ist"
+    ac:
+      - "Alle Dateien in `src/`, `tests/`, `tools/` (später `viewer/`) tragen den SPDX-Header."
+      - "Ein pre-commit-Hook oder Test meldet fehlende Header."
+    prio: Could
+    sp: 1
+    ms: m1
+    labels: [compliance, claude-code]
+    deps: []
+  - id: US-063
+    epic: EP-10
+    type: Task
+    title: "Flug-Hook härten (weitere Verbindungsarten zu echten Drohnen)"
+    as: P4
+    want: "dass der Claude-Code-Hook alle gängigen Wege zu echter Hardware blockiert"
+    so: "Regel 4 (keine Befehle an echte Drohnen) auch ab M5 verlässlich gilt"
+    ac:
+      - "Blockiert zusätzlich MAVProxy `udpout:`/`udpin:`/`tcpin:`, serielle Geräte außerhalb `/dev/tty*`, pymavlink/DroneKit-Verbindungen und MAVSDK-URIs zu fremden Adressen."
+      - "`localhost` bzw. `127.0.0.0/8` gilt als SITL und bleibt erlaubt."
+      - "Die `xfail`-Tests aus KAN-22 werden zu regulären Tests; Flug-CLI verlangt für echte Flüge zusätzlich ein interaktives Terminal mit Bestätigung."
+    prio: Should
+    sp: 2
+    ms: m5
+    labels: [flight]
+    deps: []
+  - id: US-064
+    epic: EP-01
+    type: Task
+    title: "Git LFS für Beispielclips"
+    as: P5
+    want: "Git LFS für Videos in `data/samples/`"
+    so: "Beispielclips über 20 MB versioniert werden können (CLAUDE.md Regel 5)"
+    ac:
+      - "`.gitattributes` leitet `data/samples/**/*.mp4` (und weitere Videoformate) über LFS."
+      - "`make setup` führt `git lfs install` aus bzw. meldet fehlendes git-lfs verständlich."
+    prio: Should
+    sp: 1
+    ms: m1
+    labels: [infra, claude-code]
+    deps: []
