@@ -14,7 +14,7 @@ Erlaubt: MIT, BSD-2/3, Apache-2.0, ISC, MPL-2.0, PSF-2.0 (Nachtrag 2026-11-21, P
 - **Verboten:** `licenses/denylist.yaml` (seit ADR-0012 werden NC-/Research-Muster und -Pakete nur noch als `NC` markiert; Copyleft-IDs, verbotene Pakete und Modelle, `container_only_modules`).
 - **Prüfung:** `make license-gate` als Teil von `make check` und der CI. Sie umfasst installierte Python-Pakete (Laufzeit- und Dev-Scope aus `uv.lock`), `viewer/node_modules`, `models.lock` und die Importe in `src/`.
 - **Copyleft in Dev-Werkzeugen:** erzeugt nur eine Warnung, in der Laufzeit ist es ein Fehler.
-- **Änderungen:** Änderungen an `licenses/` mergt immer der PO.
+- **Änderungen:** Änderungen an `licenses/` werden nie per Self-Merge gemergt, sondern von der PM-Session nach eigener Prüfung (seit PR #14, vorher PO).
 
 ## Konsequenzen
 + Rechtssicherheit für spätere Kommerzialisierung *(seit ADR-0012 erst nach Neuprüfung der NC-Komponenten)*
