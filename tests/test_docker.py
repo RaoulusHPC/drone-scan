@@ -72,6 +72,33 @@ def test_colmap_avoids_proprietary_and_gpl_build_options() -> None:
     assert "-DCGAL_ENABLED=OFF" in text
 
 
+def test_colmap_is_offline_and_without_agpl_lsd() -> None:
+    """Given the COLMAP image,
+    When its build options are read,
+    Then runtime downloads and the FetchContent ONNX runtime are off (CLAUDE.md rule 3)
+    and the AGPL-3.0 LSD line detector is not compiled in (license-auditor 2026-11-21).
+    """
+    text = COLMAP.read_text(encoding="utf-8")
+    for flag in ("DOWNLOAD_ENABLED", "ONNX_ENABLED", "FETCH_ONNX", "LSD_ENABLED"):
+        assert f"-D{flag}=OFF" in text, flag
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "notice"),
+    [
+        (WORKER, "/usr/share/doc/gsplat/"),
+        (COLMAP, "/usr/share/doc/colmap/"),
+    ],
+)
+def test_runtime_image_ships_license_notices(dockerfile: Path, notice: str) -> None:
+    """Given the final image stage,
+    When third-party code was compiled into it,
+    Then its license texts are copied into the image (ADR-0007).
+    """
+    final_stage = dockerfile.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
+    assert notice in final_stage
+
+
 @pytest.mark.parametrize("dockerfile", [WORKER, COLMAP])
 def test_runtime_stage_runs_as_non_root(dockerfile: Path) -> None:
     """Given the final image stage,

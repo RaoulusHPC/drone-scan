@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # COLMAP 4.2.1 (BSD-3-Clause) built for sm_61 (GTX 1060) and sm_75 (RTX 2060).
 # Runs as a separate process/container (stage `sfm`); headless: no GUI/Qt, no CGAL (GPL parts),
-# OpenBLAS instead of Intel MKL (proprietary). Build: `docker compose build colmap`.
+# OpenBLAS instead of Intel MKL (proprietary). Offline: no runtime downloads, no fetched ONNX
+# runtime (CLAUDE.md rule 3); no AGPL LSD detector. Build: `docker compose build colmap`.
 ARG CUDA_VERSION=12.6.3
 ARG UBUNTU_VERSION=24.04
 
@@ -30,7 +31,19 @@ RUN git clone --branch "${COLMAP_VERSION}" --depth 1 https://github.com/colmap/c
         -DOPENGL_ENABLED=OFF \
         -DCGAL_ENABLED=OFF \
         -DTESTS_ENABLED=OFF \
+        -DDOWNLOAD_ENABLED=OFF \
+        -DONNX_ENABLED=OFF \
+        -DFETCH_ONNX=OFF \
+        -DLSD_ENABLED=OFF \
     && cmake --build /colmap/build --target install
+# License texts of COLMAP and its bundled/fetched third-party code (ADR-0007).
+RUN mkdir -p /colmap-notices/thirdparty \
+    && cp /colmap/COPYING.txt /colmap-notices/ \
+    && for f in /colmap/src/thirdparty/*/LICENSE /colmap/build/_deps/*-src/LICENSE; do \
+         if [ -f "$f" ]; then \
+           name="$(basename "$(dirname "$f")")"; cp "$f" "/colmap-notices/thirdparty/${name%-src}.LICENSE"; \
+         fi; \
+       done
 
 # ---------- runtime stage ----------
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime
@@ -42,6 +55,7 @@ RUN apt-get update \
         libopenblas0 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /colmap-install/ /usr/local/
+COPY --from=build /colmap-notices/ /usr/share/doc/colmap/
 WORKDIR /workspace
 USER ubuntu
 CMD ["colmap", "help"]

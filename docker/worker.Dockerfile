@@ -41,6 +41,9 @@ RUN uv pip install --python /opt/venv/bin/python setuptools wheel ninja \
     && cd /tmp/gsplat \
     && TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" MAX_JOBS="${MAX_JOBS}" \
         uv pip install --python /opt/venv/bin/python --no-build-isolation . \
+    && mkdir -p /opt/notices/gsplat \
+    && cp LICENSE /opt/notices/gsplat/LICENSE \
+    && cp gsplat/cuda/csrc/third_party/glm/copying.txt /opt/notices/gsplat/glm.copying.txt \
     && rm -rf /tmp/gsplat
 
 # ---------- runtime stage ----------
@@ -54,6 +57,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/venv /opt/venv
 COPY LICENSE /usr/share/doc/drone-scan/LICENSE
+COPY --from=build /opt/notices/gsplat/ /usr/share/doc/gsplat/
 WORKDIR /workspace
 # uid 1000 ("ubuntu" in the base image) matches the usual desktop user, so files in
 # the mounted workspace/ stay owned by the user.
