@@ -15,6 +15,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import shutil
 import subprocess
@@ -36,12 +37,14 @@ from tools.spike01.colmap_text import (  # noqa: E402
 )
 from tools.spike01.frames import (  # noqa: E402
     analysis_size,
+    colmap_option_args,
     display_size,
     ffmpeg_select_expression,
     scale_pinhole,
     select_keyframes,
 )
 
+GPU_LOCK: Path | None = None  # set in main(): one GPU stage at a time across all running jobs
 GPU_INDEX = "0"  # GTX 1060 (nvidia-smi / PCI bus order); the RTX 2070 SUPER is not used
 ANALYSIS_FPS = 6
 ANALYSIS_EDGE = 480
@@ -104,6 +107,10 @@ class Recorder:
 
     @contextmanager
     def stage(self, name: str, *, gpu: bool) -> Iterator[None]:
+        lock = None
+        if gpu and GPU_LOCK is not None:  # GPU jobs never run in parallel (CLAUDE.md rule 2)
+            lock = GPU_LOCK.open("w")
+            fcntl.flock(lock, fcntl.LOCK_EX)  # waits if another job holds the GPU
         started = time.perf_counter()
         sampler = GpuSampler() if gpu else None
         if sampler:
@@ -116,6 +123,8 @@ class Recorder:
                 sampler.__exit__()
                 entry["gpu_over_baseline_mib"] = sampler.over_baseline_mib
                 entry["gpu_baseline_mib"] = sampler.baseline
+            if lock:
+                lock.close()  # releases the lock
             stages = self.data.setdefault("stages", {})
             assert isinstance(stages, dict)
             stages[name] = entry
@@ -239,16 +248,20 @@ def stage_sfm(args: argparse.Namespace, room: Path, rec: Recorder) -> None:
             "--FeatureExtraction.max_image_size", str(args.colmap_edge),
             "--SiftExtraction.max_num_features", str(args.max_features),
         )  # fmt: skip
+    matcher_options = (
+        ["--SequentialMatching.overlap", str(args.overlap)] if args.matcher == "sequential" else []
+    )
     with rec.stage("sfm_matching", gpu=True):
         colmap(
-            room, "sequential_matcher", "--database_path", db,
+            room, f"{args.matcher}_matcher", "--database_path", db,
             "--FeatureMatching.use_gpu", "1", "--FeatureMatching.gpu_index", GPU_INDEX,
-            "--SequentialMatching.overlap", str(args.overlap),
+            *matcher_options,
         )  # fmt: skip
     with rec.stage("sfm_mapper", gpu=False):
         colmap(
             room, "mapper", "--database_path", db, "--image_path", f"{work}/frames",
             "--output_path", f"{work}/sparse", "--Mapper.ba_use_gpu", "0",
+            *colmap_option_args("Mapper", args.mapper_opt),
         )  # fmt: skip
 
     models = []
@@ -399,6 +412,10 @@ def main() -> int:
     parser.add_argument("--colmap-edge", type=int, default=1600)
     parser.add_argument("--max-features", type=int, default=8192)
     parser.add_argument("--overlap", type=int, default=10)
+    parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
+    parser.add_argument(
+        "--mapper-opt", action="append", default=[], help="Mapper option, e.g. init_min_tri_angle=8"
+    )
     parser.add_argument("--train-width", type=int, default=1600)
     parser.add_argument("--iterations", type=int, default=7000)
     parser.add_argument("--strategy", choices=["default", "mcmc"], default="default")
@@ -412,6 +429,9 @@ def main() -> int:
     work = Path(args.work)
     if ROOT in work.resolve().parents or work.resolve() == ROOT:
         raise SystemExit("--work must be outside the repository (private recordings)")
+    work.mkdir(parents=True, exist_ok=True)
+    global GPU_LOCK
+    GPU_LOCK = work / ".gpu.lock"
     room = work / args.room
     room.mkdir(parents=True, exist_ok=True)
     recorder = Recorder(room / "results.json")

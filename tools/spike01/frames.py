@@ -62,3 +62,14 @@ def analysis_size(width: int, height: int, *, long_edge: int) -> tuple[int, int]
     small_width = max(2, round(width * scale / 2) * 2)
     small_height = max(2, round(height * scale / 2) * 2)
     return small_width, small_height
+
+
+def colmap_option_args(group: str, options: Sequence[str]) -> list[str]:
+    """``key=value`` pairs as COLMAP flags: ``--<group>.<key> <value>``."""
+    args: list[str] = []
+    for option in options:
+        key, separator, value = option.partition("=")
+        if not separator or not key or not value:
+            raise ValueError(f"option must look like key=value: {option}")
+        args += [f"--{group}.{key}", value]
+    return args

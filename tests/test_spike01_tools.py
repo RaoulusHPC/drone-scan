@@ -21,6 +21,7 @@ from tools.spike01.colmap_text import (
 )
 from tools.spike01.frames import (
     analysis_size,
+    colmap_option_args,
     display_size,
     ffmpeg_select_expression,
     scale_pinhole,
@@ -228,6 +229,28 @@ def test_analysis_size_keeps_the_orientation(
     Then the long edge is 480 px and the orientation is kept (even dimensions).
     """
     assert analysis_size(*display, long_edge=480) == expected
+
+
+def test_colmap_option_args_turns_key_value_pairs_into_flags() -> None:
+    """Given Mapper options given as key=value,
+    When they are converted into COLMAP command-line arguments,
+    Then each becomes `--Mapper.<key> <value>`.
+    """
+    assert colmap_option_args("Mapper", ["init_min_tri_angle=8", "min_num_matches=10"]) == [
+        "--Mapper.init_min_tri_angle",
+        "8",
+        "--Mapper.min_num_matches",
+        "10",
+    ]
+
+
+def test_colmap_option_args_rejects_an_option_without_value() -> None:
+    """Given an option without `=value`,
+    When it is converted,
+    Then a ValueError names the option.
+    """
+    with pytest.raises(ValueError, match="init_min_tri_angle"):
+        colmap_option_args("Mapper", ["init_min_tri_angle"])
 
 
 # --- tests that run the spike tools inside the worker image (marked gpu: image and GTX 1060) ---
