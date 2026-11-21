@@ -1,4 +1,4 @@
-# License denylist (ADR-0007, ADR-0012). Changes to this file are always merged by the PO.
+# License denylist (ADR-0007, ADR-0012). Changes to this file are never self-merged; the PM session merges after review (PR #14).
 #
 # Since ADR-0012 non-commercial/research-only components are ALLOWED (non-profit project,
 # images built and used locally only). The repository is public: NC code/weights must never be
