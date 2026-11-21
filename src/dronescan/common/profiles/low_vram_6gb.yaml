@@ -1,0 +1,12 @@
+# Standard profile for the target hardware: RTX 2060, 6 GB (Q-2: peak <= 5.5 GB).
+# Stage values are provisional and get calibrated in spike KAN-19.
+vram_limit_gb: 5.5
+gpu:
+  allow_fp16: true # used only on sm_70+ (RTX 2060); Pascal stays fp32
+sfm:
+  max_image_edge_px: 1600
+splat:
+  max_iterations: 30000
+  max_gaussians: 1500000
+search:
+  detector_batch_size: 4
