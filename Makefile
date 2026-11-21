@@ -7,7 +7,7 @@ VRAM_LIMIT_GB ?= 5.0
 GPU_DEVICES ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format typecheck test check test-gpu test-sitl docker-check smoke bench viewer-dev
+.PHONY: help setup lint format typecheck test license-gate check test-gpu test-sitl docker-check smoke bench viewer-dev
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-12s %s\n", $$1, $$2}'
@@ -32,8 +32,10 @@ typecheck: ## mypy --strict
 test: ## CPU tests (no gpu, no bench)
 	$(UV) run pytest -m "not gpu and not bench"
 
-# The license gate (CLAUDE.md) is added to `check` with KAN-23 (US-008).
-check: lint typecheck test ## Run before every PR: lint, types, CPU tests
+license-gate: ## Check dependency, npm and model licenses (licenses/*.yaml, models.lock)
+	$(UV) run python -m dronescan.common.licenses .
+
+check: lint typecheck test license-gate ## Run before every PR: lint, types, CPU tests, licenses
 
 test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
 	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
