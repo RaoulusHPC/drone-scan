@@ -142,7 +142,7 @@ Lizenz-Themen:          project = KAN AND labels = compliance
   1. `make check` grün, sobald vorhanden auch die CI. Bei GPU-Code zusätzlich `make test-gpu` mit 5,5-GB-Grenze.
   2. Subagent `reviewer` meldet keine BLOCKER. Je nach Änderung gilt das auch für `license-auditor` und `vram-guard`.
   3. Der PR ist konfliktfrei (`mergeable_state = clean`).
-  4. Der PR ändert **nichts** unter `flight/`, an `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik oder die Schutzmechanismen von Claude Code betreffen.
+  4. Der PR ändert **nichts** unter `flight/`, an `CLAUDE.md`, `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/` oder `licenses/`. Solche PRs mergt immer der PO, weil sie Flugsicherheit, Lizenzpolitik, die Schutzmechanismen von Claude Code oder dessen eigene Regeln (einschließlich dieser Self-Merge-Regel) betreffen.
 
   Den Jira-Status *Done* setzt weiterhin der PO. Nach dem Merge kommentiert Claude Code den Merge-Commit in der Story.
 - **Kontextpflege:** Eine Story pro Claude-Code-Sitzung. Bei langen Sitzungen kurz zusammenfassen bzw. neu starten.
