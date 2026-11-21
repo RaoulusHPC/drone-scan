@@ -46,7 +46,7 @@ files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--strict-markers", "-ra"]
+addopts = ["--strict-markers", "-ra", "-p", "pytester"]
 markers = [
     "gpu: needs CUDA, run via `make test-gpu` with DRONESCAN_VRAM_LIMIT_GB=5.5",
     "bench: slow benchmarks on reference rooms, not in CI",

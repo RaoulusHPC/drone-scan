@@ -7,7 +7,7 @@ VRAM_LIMIT_GB ?= 5.0
 GPU_DEVICES ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format typecheck test check test-gpu smoke bench viewer-dev
+.PHONY: help setup lint format typecheck test check test-gpu test-sitl smoke bench viewer-dev
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-12s %s\n", $$1, $$2}'
@@ -39,6 +39,10 @@ test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
 	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
 	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) \
 		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
+
+test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)
+	@# pytest exit code 5 = no tests collected (no SITL tests yet) -> not a failure
+	DRONESCAN_SITL=1 $(UV) run pytest -m sitl || [ $$? -eq 5 ]
 
 smoke: ## Pipeline on data/samples/kurz.mp4
 	@echo "make smoke: noch nicht verfügbar – kommt mit den Pipeline-Stufen (M1)." >&2; exit 1
