@@ -1,6 +1,7 @@
 """Command line interface `drone-scan`.
 
-Pipeline stage commands (`ingest`, `sfm`, `recon`, ...) are added by their own stories.
+Pipeline stage commands (`ingest`, `sfm`, `recon`, ...) are added by their own stories
+via `dronescan.common.stage.register_stage(app, StageClass)`.
 User-facing texts are German, code and identifiers English (CLAUDE.md).
 """
 
@@ -13,6 +14,7 @@ from pydantic import ValidationError
 
 from dronescan import __version__
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
+from dronescan.common.logging import configure_logging
 
 app = typer.Typer(
     name="drone-scan",
@@ -41,6 +43,7 @@ def main(
     ] = False,
 ) -> None:
     """Lokale Pipeline für 3D-Scans von Innenräumen."""
+    configure_logging()
 
 
 @app.command("config")
