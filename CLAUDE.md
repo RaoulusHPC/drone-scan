@@ -78,7 +78,7 @@ backlog/           # backlog.yaml (Quelle für Jira-Import)
 ## Arbeitsweise mit Jira & Stories
 
 - Jira-Zugriff über den Atlassian-MCP-Server (`.mcp.json`). **Starte jede Story mit `/story KAN-<nr>`.**
-- Ablauf: Story lesen → Plan Mode → Plan als Jira-Kommentar → Freigabe abwarten → Branch `feat/KAN-<nr>-<slug>` → Tests → Implementierung → `make check` → Review durch Subagent `reviewer` → PR „KAN-<nr>: <Titel>“ → Jira-Status *In Review* + PR-Link.
+- Ablauf: Story lesen → Plan Mode → Plan als Jira-Kommentar → Freigabe abwarten → Branch `feat/KAN-<nr>-<slug>` → Tests → Implementierung → `make check` → Review durch Subagent `reviewer` → PR „KAN-<nr>: <Titel>“ → Jira-Status *In Review* (in der deutschen Jira-UI: *Wird überprüft*) + PR-Link.
 - Commits: Conventional Commits mit Key, z. B. `feat(sfm): add AprilTag scale alignment (KAN-27)`.
 - Nicht ohne Rückfrage: Jira-Status auf *Done* setzen (macht der PO nach dem Merge), Stories löschen, Prioritäten ändern.
 - Architekturrelevante Entscheidung? → ADR-Entwurf mit `/adr` und PO fragen, statt still zu entscheiden.

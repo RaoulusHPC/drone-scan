@@ -86,6 +86,7 @@
 | **Labels** | `m0` … `m5` (Meilenstein), Komponenten-Labels `capture`, `ingest`, `sfm`, `recon`, `search`, `viewer`, `server`, `privacy`, `export`, `flight`, `infra`, `compliance`, `hardware`; `spike`, `claude-code` |
 | **Releases / Versionen** | `M0-Fundament`, `M1-MVP`, `M2-Suche`, `M3-Drohne`, `M4-Präsentation`, `M5-Flug` |
 | **Board-Spalten** | Backlog → Ready → In Progress → In Review (PR offen) → Done |
+| **Jira-Status (deutsche UI)** | Board „KAN board“ (ID 2, team-managed). Spalte → Status: Backlog/To Do → *Zu erledigen*, Ready → *Ready* (Stand 21.11.2026 noch vom PO anzulegen; bis dahin schlägt der JQL-Filter „Bereit für Claude Code“ fehl), In Progress → *In Arbeit*, In Review → *Wird überprüft*, Done → *Fertig*. Transitions immer über den **Zielstatus** auswählen, nicht über den Spaltennamen |
 | **Verknüpfungen** | „blocks / is blocked by“ für die Abhängigkeiten aus dem Backlog |
 
 **Nützliche JQL-Filter**

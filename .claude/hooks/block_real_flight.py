@@ -21,7 +21,10 @@ try:
 except json.JSONDecodeError:
     sys.exit(0)
 
-command = (payload.get("tool_input") or {}).get("command", "")
+tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+command = tool_input.get("command") if isinstance(tool_input, dict) else None
+if not isinstance(command, str):
+    sys.exit(0)
 for pattern in BLOCKED:
     if re.search(pattern, command):
         print(
