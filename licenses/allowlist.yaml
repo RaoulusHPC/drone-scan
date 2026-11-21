@@ -22,6 +22,7 @@ data_licenses:
 # Packages whose metadata has no precise SPDX id; value verified against the LICENSE file.
 overrides:
   nodeenv:
+    version: "1.12.0" # override only applies to this version; re-check on upgrade
     license: BSD-3-Clause
-    source: https://github.com/ekalinin/nodeenv/blob/master/LICENSE
+    source: https://github.com/ekalinin/nodeenv/blob/1.12.0/LICENSE
     checked: 2026-11-21

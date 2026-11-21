@@ -344,7 +344,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 | Q-5 | Testset mit 20 platzierten Gegenständen | Gegenstand in Top-3-Treffern bei **≥ 70 %** |
 | Q-6 | Suchanfrage nach Indexierung | Antwort **< 3 s** |
 | Q-7 | Viewer auf Mittelklasse-Android | **≥ 30 fps** bei komprimierter Szene (≤ 1,5 M Gaussians) |
-| Q-8 | Neue Abhängigkeit mit NC-Lizenz | **CI schlägt fehl** |
+| Q-8 | Neue Abhängigkeit mit NC-Lizenz | **CI schlägt fehl** (`make license-gate`, Teil von `make check`) |
 | Q-9 | Unscharfes Video | Exit 20 mit **mind. 1 konkretem Hinweis** statt Absturz |
 
 ---

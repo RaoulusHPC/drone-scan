@@ -3,6 +3,10 @@ imports in src/ against licenses/allowlist.yaml and licenses/denylist.yaml.
 
 Run offline with ``python -m dronescan.common.licenses [repo_root]`` (``make license-gate``,
 part of ``make check`` and CI). Exit 1 on any violation.
+
+The Python check reads the *installed* environment (CI: ``uv sync --locked``) and uses
+``uv.lock`` for the runtime/dev scope; locked packages that are not installed are reported
+as warnings, so they are not silently skipped.
 """
 
 from __future__ import annotations
@@ -16,19 +20,24 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from email.message import Message
 from importlib import metadata
+from itertools import product
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from dronescan.common.models_lock import load_models_lock
 
 Kind = Literal["python", "npm", "model"]
 Scope = Literal["runtime", "dev"]
 Severity = Literal["error", "warning"]
 
 ROOT_PROJECT = "drone-scan"
-MODEL_FIELDS = ("name", "version", "sha256", "license", "source")
+_MAX_ID_LENGTH = 80  # longer License fields are free text, not an SPDX id/expression
 
-# Trove classifiers and free-text License fields that map unambiguously to SPDX.
+# Trove classifiers and short License fields that map unambiguously to SPDX.
+# "BSD License" is deliberately missing: it is ambiguous (2- or 3-clause) and needs an override.
 _ALIASES: dict[str, str] = {
     "mit license": "MIT",
     "mit": "MIT",
@@ -40,7 +49,7 @@ _ALIASES: dict[str, str] = {
     "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
     "python software foundation license": "PSF-2.0",
 }
-_TOKEN = re.compile(r"\(|\)|\bOR\b|\bAND\b|\bWITH\b|[^\s()]+")
+_TOKEN = re.compile(r"\(|\)|[^\s()]+")
 
 
 def normalize_name(name: str) -> str:
@@ -57,23 +66,34 @@ class Policy:
     denied_packages: Mapping[str, str]
     denied_models: tuple[tuple[re.Pattern[str], str], ...]
     container_only: frozenset[str]
-    overrides: Mapping[str, str]
+    overrides: Mapping[str, tuple[str, str | None]]  # name -> (license, pinned version)
 
 
-@dataclass(frozen=True)
-class Component:
+class Component(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     kind: Kind
     name: str
     version: str
     license: str | None
     scope: Scope
+    source: str = ""
 
 
-@dataclass(frozen=True)
-class Finding:
+class Finding(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     severity: Severity
     subject: str
     message: str
+
+
+def _error(subject: str, message: str) -> Finding:
+    return Finding(severity="error", subject=subject, message=message)
+
+
+def _warning(subject: str, message: str) -> Finding:
+    return Finding(severity="warning", subject=subject, message=message)
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -97,33 +117,75 @@ def load_policy(licenses_dir: Path) -> Policy:
         ),
         container_only=frozenset(deny.get("container_only_modules", [])),
         overrides={
-            normalize_name(name): entry["license"]
+            normalize_name(name): (entry["license"], entry.get("version"))
             for name, entry in (allow.get("overrides") or {}).items()
         },
     )
 
 
-def _alternatives(expression: str) -> list[list[str]]:
-    """Split an SPDX expression into OR-alternatives of AND-ed license ids.
+class _Parser:
+    """SPDX expression → disjunctive normal form (list of AND-ed license id sets).
 
-    Parentheses are flattened; this is sufficient for the expressions found in
-    package metadata ("A OR B", "A AND B", "(A OR B)").
+    Grammar: expr := term (OR term)* ; term := atom (AND atom)* ;
+    atom := '(' expr ')' | ID [WITH ID]. Raises ValueError for malformed input.
     """
-    tokens = [t for t in _TOKEN.findall(expression) if t not in "()"]
-    alternatives: list[list[str]] = [[]]
-    skip_next = False
-    for token in tokens:
-        if skip_next:  # exception id after WITH
-            skip_next = False
-        elif token == "OR":
-            alternatives.append([])
-        elif token == "AND":
-            continue
-        elif token == "WITH":
-            skip_next = True
-        else:
-            alternatives[-1].append(token)
-    return [alt for alt in alternatives if alt]
+
+    def __init__(self, expression: str) -> None:
+        self.tokens = _TOKEN.findall(expression)
+        self.pos = 0
+
+    def parse(self) -> list[frozenset[str]]:
+        result = self._expr()
+        if self.pos != len(self.tokens):
+            raise ValueError("trailing tokens")
+        return result
+
+    def _peek(self) -> str | None:
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
+
+    def _take(self) -> str:
+        token = self._peek()
+        if token is None:
+            raise ValueError("unexpected end")
+        self.pos += 1
+        return token
+
+    def _expr(self) -> list[frozenset[str]]:
+        result = self._term()
+        while self._peek() == "OR":
+            self._take()
+            result = result + self._term()
+        return result
+
+    def _term(self) -> list[frozenset[str]]:
+        result = self._atom()
+        while self._peek() == "AND":
+            self._take()
+            right = self._atom()
+            result = [a | b for a, b in product(result, right)]
+        return result
+
+    def _atom(self) -> list[frozenset[str]]:
+        token = self._take()
+        if token == "(":
+            inner = self._expr()
+            if self._take() != ")":
+                raise ValueError("missing ')'")
+            return inner
+        if token in {")", "OR", "AND", "WITH"}:
+            raise ValueError(f"unexpected {token}")
+        if self._peek() == "WITH":  # license exception, e.g. GPL-2.0-only WITH Classpath
+            self._take()
+            self._take()
+        return [frozenset({token})]
+
+
+def alternatives(expression: str) -> list[frozenset[str]] | None:
+    """Alternatives of an SPDX expression, or None if it cannot be parsed."""
+    try:
+        return _Parser(expression).parse()
+    except ValueError:
+        return None
 
 
 def _label(c: Component) -> str:
@@ -135,47 +197,58 @@ def check_component(c: Component, policy: Policy) -> list[Finding]:
     subject = _label(c)
     name = normalize_name(c.name)
     if c.kind != "model" and name in policy.denied_packages:
-        return [Finding("error", subject, f"Verboten (Denylist): {policy.denied_packages[name]}.")]
+        return [
+            _error(
+                subject,
+                f"Verboten (Denylist): {policy.denied_packages[name]}. "
+                "Abhilfe: Abhängigkeit entfernen und eine permissiv lizenzierte Alternative "
+                "wählen.",
+            )
+        ]
     if c.kind == "model":
         for pattern, reason in policy.denied_models:
-            if pattern.search(c.name):
-                return [Finding("error", subject, f"Verbotenes Modell (Denylist): {reason}.")]
+            if pattern.search(c.name) or pattern.search(c.source):
+                return [
+                    _error(
+                        subject,
+                        f"Verbotenes Modell (Denylist): {reason}. "
+                        "Abhilfe: Eintrag aus models.lock entfernen.",
+                    )
+                ]
     license_ = (c.license or "").strip()
     if any(p.search(license_) for p in policy.patterns):
         return [
-            Finding(
-                "error",
+            _error(
                 subject,
                 f"Nutzungsbeschränkte Lizenz '{license_}' (non-commercial/research-only) ist "
                 "verboten. Abhilfe: Alternative mit MIT/BSD/Apache-2.0 wählen.",
             )
         ]
-    alternatives = _alternatives(license_) if license_ else []
-    if not alternatives:
+    alts = alternatives(license_) if license_ else None
+    if not alts:
         return [
-            Finding(
-                "error",
+            _error(
                 subject,
-                "Lizenz unklar. Abhilfe: Lizenzdatei prüfen und in licenses/allowlist.yaml "
-                "unter 'overrides' mit Quelle eintragen (PO-Freigabe).",
+                f"Lizenz unklar ('{license_ or 'keine Angabe'}'). Abhilfe: Lizenzdatei prüfen "
+                "und in licenses/allowlist.yaml unter 'overrides' mit Quelle eintragen "
+                "(PO-Freigabe).",
             )
         ]
     allowed = policy.allowed | (policy.data_allowed if c.kind == "model" else frozenset())
-    if any(all(lic in allowed for lic in alt) for alt in alternatives):
+    if any(alt <= allowed for alt in alts):
         return []
-    if any(all(lic in allowed | policy.copyleft for lic in alt) for alt in alternatives):
+    if any(alt <= allowed | policy.copyleft for alt in alts):
         if c.scope == "dev" and c.kind == "python":
             return [
-                Finding(
-                    "warning",
+                _warning(
                     subject,
-                    f"Copyleft-Lizenz '{license_}' nur als Entwicklungswerkzeug (separater "
-                    "Prozess) – nicht ausliefern.",
+                    f"Copyleft-Lizenz '{license_}' ist nur als Entwicklungswerkzeug (separater "
+                    "Prozess) zulässig. Abhilfe: nie aus src/ importieren und nicht ausliefern; "
+                    "besser eine permissive Alternative wählen.",
                 )
             ]
         return [
-            Finding(
-                "error",
+            _error(
                 subject,
                 f"Copyleft-Lizenz '{license_}' ist nur als separater Prozess bzw. Container "
                 "erlaubt, nicht als Laufzeit-Abhängigkeit (ADR-0007). Abhilfe: permissive "
@@ -183,8 +256,7 @@ def check_component(c: Component, policy: Policy) -> list[Finding]:
             )
         ]
     return [
-        Finding(
-            "error",
+        _error(
             subject,
             f"Lizenz '{license_}' steht nicht in licenses/allowlist.yaml. Abhilfe: Lizenz "
             "prüfen lassen (Subagent license-auditor) und vom PO freigeben lassen.",
@@ -193,102 +265,251 @@ def check_component(c: Component, policy: Policy) -> list[Finding]:
 
 
 def resolve_python_license(meta: metadata.PackageMetadata | Message, policy: Policy) -> str | None:
-    """Override > License-Expression > License field (SPDX/alias) > classifiers."""
-    name = normalize_name(meta.get("Name", ""))
+    """Override > License-Expression > short License field > classifiers.
+
+    Long License fields are free text (often the full license) and are only used when
+    there is nothing better; NC patterns are applied to short, id-like fields only to
+    avoid false positives such as "commercial or non-commercial use is permitted".
+    """
+    name = normalize_name(meta.get("Name") or "")
     if name in policy.overrides:
-        return policy.overrides[name]
+        license_, version = policy.overrides[name]
+        if version is None or version == meta.get("Version"):
+            return license_
+        # Override is pinned to another version: fall through, a re-check is needed.
     expression = (meta.get("License-Expression") or "").strip()
     if expression:
         return expression
     field = (meta.get("License") or "").strip()
-    known = policy.allowed | policy.copyleft | policy.data_allowed
-    if field in known:
-        return field
-    if field.lower() in _ALIASES:
-        return _ALIASES[field.lower()]
-    if any(p.search(field) for p in policy.patterns):
-        return field  # keep the restricting text so the gate reports it
-    classifiers = {
-        _ALIASES.get(c.split("::")[-1].strip().lower())
-        for c in meta.get_all("Classifier") or []
-        if c.startswith("License ::")
-    } - {None}
+    short = 0 < len(field) <= _MAX_ID_LENGTH and "\n" not in field
+    if short:
+        if alternatives(field) and all(
+            alt <= policy.allowed | policy.copyleft | policy.data_allowed
+            for alt in alternatives(field) or []
+        ):
+            return field
+        if field.lower() in _ALIASES:
+            return _ALIASES[field.lower()]
+        if any(p.search(field) for p in policy.patterns):
+            return field  # keep the restricting text so the gate reports it
+    classifiers = sorted(
+        {
+            _ALIASES[key]
+            for c in meta.get_all("Classifier") or []
+            if c.startswith("License ::") and (key := c.split("::")[-1].strip().lower()) in _ALIASES
+        }
+    )
     if classifiers:
-        return " OR ".join(sorted(c for c in classifiers if c))
+        return " OR ".join(classifiers)
     return None
 
 
-def runtime_packages(lock_path: Path, root: str = ROOT_PROJECT) -> set[str]:
-    """Normalised names of all transitive runtime dependencies of ``root`` in uv.lock."""
-    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    deps: dict[str, list[str]] = {
-        normalize_name(p["name"]): [normalize_name(d["name"]) for d in p.get("dependencies", [])]
-        for p in lock.get("package", [])
-    }
+def _lock_graph(lock: dict[str, Any]) -> dict[str, list[tuple[str, bool]]]:
+    """name -> [(dependency, has_marker)] incl. optional (extra) dependencies."""
+    graph: dict[str, list[tuple[str, bool]]] = {}
+    for package in lock.get("package", []):
+        edges = [
+            (normalize_name(d["name"]), "marker" in d) for d in package.get("dependencies", [])
+        ]
+        for extra in (package.get("optional-dependencies") or {}).values():
+            edges += [(normalize_name(d["name"]), "marker" in d) for d in extra]
+        graph[normalize_name(package["name"])] = edges
+    return graph
+
+
+def _closure(
+    graph: dict[str, list[tuple[str, bool]]], start: list[str], unmarked: bool
+) -> set[str]:
     seen: set[str] = set()
-    stack = list(deps.get(normalize_name(root), []))
+    stack = list(start)
     while stack:
         name = stack.pop()
-        if name not in seen:
-            seen.add(name)
-            stack.extend(deps.get(name, []))
+        if name in seen:
+            continue
+        seen.add(name)
+        stack.extend(dep for dep, marked in graph.get(name, []) if not (unmarked and marked))
     return seen
+
+
+def runtime_packages(lock_path: Path, root: str = ROOT_PROJECT) -> set[str]:
+    """Normalised names of all transitive runtime dependencies (incl. extras) of ``root``."""
+    graph = _lock_graph(tomllib.loads(lock_path.read_text(encoding="utf-8")))
+    return _closure(graph, [dep for dep, _ in graph.get(normalize_name(root), [])], False)
+
+
+def _expected_installed(lock_path: Path, root: str = ROOT_PROJECT) -> set[str]:
+    """Locked runtime + dev packages without platform markers (should be installed in CI)."""
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    graph = _lock_graph(lock)
+    root_entry: dict[str, Any] = next(
+        (p for p in lock.get("package", []) if normalize_name(p["name"]) == normalize_name(root)),
+        {},
+    )
+    start = [dep for dep, marked in graph.get(normalize_name(root), []) if not marked]
+    for group in (root_entry.get("dev-dependencies") or {}).values():
+        start += [normalize_name(d["name"]) for d in group if "marker" not in d]
+    return _closure(graph, start, True)
 
 
 def python_components(
     policy: Policy, lock_path: Path, dists: Iterable[metadata.Distribution] | None = None
-) -> list[Component]:
-    runtime = runtime_packages(lock_path) if lock_path.is_file() else set()
-    components = []
+) -> tuple[list[Component], list[Finding]]:
+    if not lock_path.is_file():
+        return [], [
+            _error(
+                "uv.lock",
+                "uv.lock fehlt, ohne Lockfile ist der Laufzeit-Scope unbekannt. "
+                "Abhilfe: 'uv lock' ausführen und uv.lock einchecken.",
+            )
+        ]
+    runtime = runtime_packages(lock_path)
+    components: list[Component] = []
+    findings: list[Finding] = []
+    installed: set[str] = set()
     for dist in dists if dists is not None else metadata.distributions():
         meta = dist.metadata
-        name = normalize_name(meta["Name"])
+        raw_name = meta.get("Name")
+        if not raw_name:
+            findings.append(
+                _warning(
+                    "python:?",
+                    "Installiertes Paket ohne Namen in den Metadaten übersprungen. "
+                    "Abhilfe: Umgebung mit 'uv sync --locked' neu aufbauen.",
+                )
+            )
+            continue
+        name = normalize_name(raw_name)
+        installed.add(name)
         if name == ROOT_PROJECT:
             continue
         scope: Scope = "runtime" if name in runtime else "dev"
         components.append(
-            Component("python", name, meta["Version"], resolve_python_license(meta, policy), scope)
+            Component(
+                kind="python",
+                name=name,
+                version=meta.get("Version") or "?",
+                license=resolve_python_license(meta, policy),
+                scope=scope,
+            )
         )
-    return components
+    for name in sorted(_expected_installed(lock_path) - installed):
+        findings.append(
+            _warning(
+                f"python:{name}",
+                "In uv.lock, aber nicht installiert – Lizenz nicht geprüft. "
+                "Abhilfe: 'uv sync --locked --all-extras --all-groups' vor dem Gate ausführen.",
+            )
+        )
+    return components, findings
+
+
+def _npm_license(data: dict[str, Any]) -> str | None:
+    lic = data.get("license")
+    if isinstance(lic, dict):
+        lic = lic.get("type")
+    if not lic and isinstance(data.get("licenses"), list):  # legacy field
+        types = [
+            str(e.get("type")) for e in data["licenses"] if isinstance(e, dict) and e.get("type")
+        ]
+        lic = " OR ".join(types) if types else None
+    return str(lic) if lic else None
 
 
 def npm_components(viewer_dir: Path) -> list[Component]:
-    """All packages in viewer/node_modules (treated as shipped, i.e. runtime)."""
+    """All packages in viewer/node_modules incl. pnpm's indirect dependencies (runtime)."""
     modules = viewer_dir / "node_modules"
     if not modules.is_dir():
         return []
-    manifests = list(modules.glob("*/package.json")) + list(modules.glob("@*/*/package.json"))
-    components = []
-    for path in sorted(manifests):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        lic = data.get("license")
-        if isinstance(lic, dict):
-            lic = lic.get("type")
-        name = str(data.get("name") or path.parent.name)
-        components.append(
-            Component("npm", name, str(data.get("version", "?")), lic or None, "runtime")
-        )
-    return components
+    patterns = [
+        "*/package.json",
+        "@*/*/package.json",
+        ".pnpm/*/node_modules/*/package.json",
+        ".pnpm/*/node_modules/@*/*/package.json",
+    ]
+    seen: dict[tuple[str, str], Component] = {}
+    for pattern in patterns:
+        for path in sorted(modules.glob(pattern)):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not data.get("name"):
+                continue
+            key = (str(data["name"]), str(data.get("version", "?")))
+            seen.setdefault(
+                key,
+                Component(
+                    kind="npm",
+                    name=key[0],
+                    version=key[1],
+                    license=_npm_license(data),
+                    scope="runtime",
+                ),
+            )
+    return list(seen.values())
+
+
+def _npm_findings(viewer_dir: Path) -> list[Finding]:
+    if (viewer_dir / "package.json").is_file() and not (viewer_dir / "node_modules").is_dir():
+        return [
+            _error(
+                "npm",
+                "viewer/package.json vorhanden, aber keine node_modules – npm-Lizenzen "
+                "ungeprüft. Abhilfe: 'pnpm install --frozen-lockfile' im Ordner viewer/ "
+                "vor dem Gate ausführen.",
+            )
+        ]
+    return []
 
 
 def model_components(models_lock: Path) -> tuple[list[Component], list[Finding]]:
     if not models_lock.is_file():
-        return [], [Finding("error", "models.lock", "models.lock fehlt.")]
-    data = yaml.safe_load(models_lock.read_text(encoding="utf-8")) or {}
-    components: list[Component] = []
-    findings: list[Finding] = []
-    for index, entry in enumerate(data.get("models") or []):
-        missing = [f for f in MODEL_FIELDS if not entry.get(f)]
-        subject = f"model:{entry.get('name', f'#{index}')}"
-        if missing:
-            findings.append(
-                Finding("error", subject, f"Eintrag unvollständig, es fehlt: {', '.join(missing)}.")
+        return [], [
+            _error(
+                "models.lock",
+                "models.lock fehlt. Abhilfe: Datei mit 'models: []' anlegen "
+                "(Modelle kommen per 'drone-scan models pull').",
             )
-            continue
-        components.append(
-            Component("model", entry["name"], str(entry["version"]), entry["license"], "runtime")
+        ]
+    try:
+        lock = load_models_lock(models_lock)
+    except (ValueError, ValidationError, yaml.YAMLError) as exc:
+        detail = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        return [], [
+            _error(
+                "models.lock",
+                f"Eintrag ungültig oder unvollständig ({detail}). Abhilfe: jedes Modell braucht "
+                "name, version, sha256 (64 Hex-Zeichen), license und source.",
+            )
+        ]
+    return [
+        Component(
+            kind="model",
+            name=m.name,
+            version=m.version,
+            license=m.license,
+            scope="runtime",
+            source=m.source,
         )
-    return components, findings
+        for m in lock.models
+    ], []
+
+
+def _imported_modules(tree: ast.AST) -> Iterable[tuple[str, int]]:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name, node.lineno
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            yield node.module, node.lineno
+        elif (
+            isinstance(node, ast.Call)
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == "__import__")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "import_module")
+            )
+        ):
+            yield node.args[0].value, node.lineno
 
 
 def scan_imports(src_dir: Path, policy: Policy, extra_modules: set[str]) -> list[Finding]:
@@ -297,36 +518,30 @@ def scan_imports(src_dir: Path, policy: Policy, extra_modules: set[str]) -> list
     findings = []
     for path in sorted(src_dir.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                modules = [node.module]
-            else:
-                continue
-            for module in modules:
-                top = module.split(".")[0]
-                if top in forbidden:
-                    findings.append(
-                        Finding(
-                            "error",
-                            f"{path.relative_to(src_dir).as_posix()}:{node.lineno}",
-                            f"Import von '{top}' (Copyleft) aus {path.name} ist verboten. "
-                            "Abhilfe: Werkzeug als separaten Prozess/Container aufrufen.",
-                        )
+        for module, lineno in _imported_modules(tree):
+            top = module.split(".")[0]
+            if top in forbidden:
+                findings.append(
+                    _error(
+                        f"{path.relative_to(src_dir).as_posix()}:{lineno}",
+                        f"Import von '{top}' (Copyleft) aus {path.name} ist verboten. "
+                        "Abhilfe: Werkzeug als separaten Prozess/Container aufrufen.",
                     )
+                )
     return findings
 
 
 def _copyleft_modules(components: list[Component], policy: Policy) -> set[str]:
-    """Top-level modules provided by installed distributions with copyleft-only licenses."""
-    copyleft = {
-        c.name
-        for c in components
-        if c.kind == "python"
-        and c.license
-        and all(any(lic in policy.copyleft for lic in alt) for alt in _alternatives(c.license))
-    }
+    """Top-level modules provided by installed distributions without a non-copyleft option."""
+    copyleft = set()
+    for c in components:
+        alts = alternatives(c.license or "") if c.kind == "python" else None
+        if (
+            alts
+            and not any(alt <= policy.allowed for alt in alts)
+            and any(alt & policy.copyleft for alt in alts)
+        ):
+            copyleft.add(c.name)
     mapping = metadata.packages_distributions()
     return {
         mod for mod, dists in mapping.items() if any(normalize_name(d) in copyleft for d in dists)
@@ -335,10 +550,10 @@ def _copyleft_modules(components: list[Component], policy: Policy) -> set[str]:
 
 def run_gate(root: Path) -> list[Finding]:
     policy = load_policy(root / "licenses")
-    python = python_components(policy, root / "uv.lock")
-    models, findings = model_components(root / "models.lock")
-    components = python + npm_components(root / "viewer") + models
-    for component in components:
+    python, findings = python_components(policy, root / "uv.lock")
+    models, model_findings = model_components(root / "models.lock")
+    findings += model_findings + _npm_findings(root / "viewer")
+    for component in python + npm_components(root / "viewer") + models:
         findings.extend(check_component(component, policy))
     if (root / "src").is_dir():
         findings.extend(scan_imports(root / "src", policy, _copyleft_modules(python, policy)))

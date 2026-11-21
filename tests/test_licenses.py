@@ -19,6 +19,7 @@ from dronescan.common.licenses import (
     main,
     model_components,
     npm_components,
+    python_components,
     resolve_python_license,
     run_gate,
     runtime_packages,
@@ -26,6 +27,8 @@ from dronescan.common.licenses import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+MIT_CLASSIFIER = "License :: OSI Approved :: MIT License"
+APACHE_CLASSIFIER = "License :: OSI Approved :: Apache Software License"
 
 
 @pytest.fixture
@@ -127,7 +130,12 @@ def make_metadata(**fields: str | list[str]) -> Message:
         ({"Name": "b", "License": "BSD-3-Clause"}, "BSD-3-Clause"),
         ({"Name": "c", "Classifier": ["License :: OSI Approved :: MIT License"]}, "MIT"),
         ({"Name": "d", "License": "ISC License"}, "ISC"),
-        ({"Name": "nodeenv", "License": "BSD"}, "BSD-3-Clause"),  # override
+        ({"Name": "nodeenv", "Version": "1.12.0", "License": "BSD"}, "BSD-3-Clause"),
+        ({"Name": "nodeenv", "Version": "2.0.0", "License": "BSD"}, None),  # override pinned
+        (
+            {"Name": "f", "License_Expression": "MIT", "Classifier": [APACHE_CLASSIFIER]},
+            "MIT",
+        ),
         ({"Name": "e", "License": "BSD"}, None),  # ambiguous without override
     ],
 )
@@ -282,7 +290,9 @@ def test_import_of_copyleft_distribution_is_reported(tmp_path: Path, policy: Pol
 
 
 def test_repository_passes_the_gate() -> None:
-    """Given the current repository (uv.lock, installed env, models.lock, src/),
+    """Note: depends on the locally installed environment (`uv sync --locked`).
+
+    Given the current repository (uv.lock, installed env, models.lock, src/),
     When the license gate runs,
     Then there are no errors.
     """
@@ -307,3 +317,195 @@ def test_main_exit_code_reflects_violations(
 
     assert main([str(repo)]) == 1
     assert "Lizenz-Gate" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["(MIT OR Apache-2.0) AND GPL-3.0-only", "MIT AND (GPL-3.0-only OR AGPL-3.0-only)"],
+)
+def test_brackets_with_and_cannot_hide_copyleft(policy: Policy, expression: str) -> None:
+    """Given an expression where every alternative needs a copyleft license,
+    When a runtime dependency is checked,
+    Then the gate fails (brackets are parsed, not dropped).
+    """
+    assert errors(check_component(comp(expression), policy))
+
+
+@pytest.mark.parametrize(
+    "expression", ["LGPL-3.0-or-later", "GPL-2.0-or-later WITH Classpath-exception-2.0 OR MIT"]
+)
+def test_lgpl_and_with_exceptions(policy: Policy, expression: str) -> None:
+    """Given LGPL (dynamic use allowed) or a WITH exception with a permissive alternative,
+    When a runtime dependency is checked,
+    Then it passes.
+    """
+    assert errors(check_component(comp(expression), policy)) == []
+
+
+@pytest.mark.parametrize("expression", ["(MIT", "MIT OR", "AND MIT"])
+def test_malformed_expression_is_unclear(policy: Policy, expression: str) -> None:
+    """Given a malformed SPDX expression,
+    When it is checked,
+    Then it is reported as unclear (fail closed).
+    """
+    assert errors(check_component(comp(expression), policy))
+
+
+def test_long_permissive_license_text_is_no_nc_false_positive(policy: Policy) -> None:
+    """Given a full license text mentioning 'commercial or non-commercial' plus an MIT classifier,
+    When the license is resolved,
+    Then the classifier is used and the package passes.
+    """
+    text = (
+        "Permission is hereby granted ... for any purpose, commercial or non-commercial, "
+        "and by any means. THE SOFTWARE IS PROVIDED AS IS ..." * 2
+    )
+    meta = make_metadata(Name="g", License=text, Classifier=[MIT_CLASSIFIER])
+
+    resolved = resolve_python_license(meta, policy)
+
+    assert resolved == "MIT"
+    assert errors(check_component(comp(resolved), policy)) == []
+
+
+def test_nc_pattern_does_not_match_inside_words(policy: Policy) -> None:
+    """Given a short license id that merely contains the letters 'nc' (e.g. 'NCSA'),
+    When it is checked,
+    Then it is not mistaken for a non-commercial license (but still unknown → allowlist).
+    """
+    found = errors(check_component(comp("NCSA"), policy))
+    assert found and "non-commercial" not in found[0].message
+
+
+def test_missing_uv_lock_fails_closed(tmp_path: Path, policy: Policy) -> None:
+    """Given no uv.lock,
+    When Python components are collected,
+    Then an error is reported instead of treating everything as dev.
+    """
+    components, findings = python_components(policy, tmp_path / "uv.lock", dists=[])
+
+    assert components == [] and errors(findings)
+
+
+def test_locked_but_not_installed_is_warned(tmp_path: Path, policy: Policy) -> None:
+    """Given a locked runtime package that is not installed,
+    When the gate runs,
+    Then it warns that the package was not checked.
+    """
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        '[[package]]\nname = "drone-scan"\ndependencies = [{ name = "typer" }]\n'
+        '[[package]]\nname = "typer"\n',
+        encoding="utf-8",
+    )
+
+    _, findings = python_components(policy, lock, dists=[])
+
+    assert [f.subject for f in findings if f.severity == "warning"] == ["python:typer"]
+
+
+def test_extras_count_as_runtime(tmp_path: Path) -> None:
+    """Given a dependency that only comes in through an extra,
+    When the runtime closure is computed,
+    Then it counts as runtime (copyleft there must fail, not just warn).
+    """
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        '[[package]]\nname = "drone-scan"\n'
+        '[package.optional-dependencies]\nserver = [{ name = "uvicorn" }]\n'
+        '[[package]]\nname = "uvicorn"\n',
+        encoding="utf-8",
+    )
+
+    assert runtime_packages(lock) == {"uvicorn"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "- just a list",
+        "models:\n  - name: x",
+        "models:\n  - " + json.dumps({**MODEL, "sha256": "abc"}),
+    ],
+)
+def test_malformed_models_lock_is_reported(tmp_path: Path, content: str) -> None:
+    """Given a malformed models.lock (no mapping, missing fields, bad sha256),
+    When the gate reads it,
+    Then it reports an error with a remedy instead of crashing.
+    """
+    path = tmp_path / "models.lock"
+    path.write_text(content, encoding="utf-8")
+
+    _, findings = model_components(path)
+
+    assert errors(findings) and "Abhilfe" in findings[0].message
+
+
+def test_npm_pnpm_indirect_and_legacy_licenses(tmp_path: Path, policy: Policy) -> None:
+    """Given pnpm's layout (indirect deps under node_modules/.pnpm) and a legacy 'licenses' array,
+    When npm components are collected,
+    Then indirect packages and legacy licenses are included.
+    """
+    modules = tmp_path / "viewer" / "node_modules"
+    indirect = modules / ".pnpm" / "dep@1.0.0" / "node_modules" / "dep"
+    indirect.mkdir(parents=True)
+    nc_pkg = {"name": "dep", "version": "1.0.0", "license": "CC-BY-NC-4.0"}
+    (indirect / "package.json").write_text(json.dumps(nc_pkg))
+    legacy = modules / "old"
+    legacy.mkdir()
+    legacy_pkg = {"name": "old", "version": "0.1", "licenses": [{"type": "MIT"}]}
+    (legacy / "package.json").write_text(json.dumps(legacy_pkg))
+
+    components = {c.name: c for c in npm_components(tmp_path / "viewer")}
+
+    assert components["old"].license == "MIT"
+    assert errors(check_component(components["dep"], policy))
+
+
+def test_viewer_without_node_modules_fails(tmp_path: Path) -> None:
+    """Given viewer/package.json but no installed node_modules,
+    When the gate runs,
+    Then it fails instead of silently skipping npm.
+    """
+    repo = tmp_path / "repo"
+    shutil.copytree(ROOT / "licenses", repo / "licenses")
+    shutil.copy(ROOT / "uv.lock", repo / "uv.lock")
+    shutil.copy(ROOT / "models.lock", repo / "models.lock")
+    (repo / "viewer").mkdir()
+    (repo / "viewer" / "package.json").write_text("{}", encoding="utf-8")
+
+    assert any(f.subject == "npm" for f in errors(run_gate(repo)))
+
+
+def test_dynamic_import_of_container_only_module_is_reported(
+    tmp_path: Path, policy: Policy
+) -> None:
+    """Given importlib.import_module('ultralytics') in src/,
+    When imports are scanned,
+    Then it is reported like a normal import.
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "det.py").write_text("import importlib\nm = importlib.import_module('ultralytics')\n")
+
+    assert errors(scan_imports(src, policy, extra_modules=set()))
+
+
+def test_denylisted_model_matched_by_source(tmp_path: Path, policy: Policy) -> None:
+    """Given a model whose name is harmless but whose source is the SuperPoint repo,
+    When the gate checks it,
+    Then the denylist matches on the source.
+    """
+    lock = write_models_lock(
+        tmp_path / "models.lock",
+        [
+            {
+                **MODEL,
+                "name": "keypoints",
+                "source": "https://github.com/magicleap/SuperPointPretrainedNetwork",
+            }
+        ],
+    )
+    components, _ = model_components(lock)
+
+    assert errors(check_component(components[0], policy))

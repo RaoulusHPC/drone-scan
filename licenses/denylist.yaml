@@ -21,32 +21,46 @@ copyleft:
   - AGPL-3.0-or-later
 
 # Packages (Python or npm, normalised names) that must never be dependencies.
+# Reasons are shown to the user (German); sources: license-auditor review 2026-11-21.
 packages:
   - name: diff-gaussian-rasterization
-    reason: Inria 3D Gaussian Splatting rasterizer, non-commercial license
+    reason: Inria-3DGS-Rasterizer, Gaussian-Splatting License (nur Forschung/Evaluation)
   - name: gaussian-splatting
-    reason: Inria 3D Gaussian Splatting reference code, non-commercial license
+    reason: Inria-3DGS-Referenzcode, Gaussian-Splatting License (nur Forschung/Evaluation)
   - name: simple-knn
-    reason: part of the Inria 3DGS code base, non-commercial license
+    reason: Teil des Inria-3DGS-Codes, Lizenz nicht kommerziell bzw. unklar
+  - name: sibr
+    reason: Inria-SIBR-Viewer aus dem 3DGS-Projekt, Lizenz unklar
+  - name: langsplat
+    reason: LangSplat steht unter der Gaussian-Splatting License (nicht kommerziell)
   - name: dust3r
-    reason: DUSt3R code and weights CC BY-NC-SA 4.0
+    reason: DUSt3R-Code CC BY-NC-SA 4.0, Checkpoints an nicht kommerzielle Trainingsdaten gebunden
   - name: mast3r
-    reason: MASt3R code and weights CC BY-NC-SA 4.0
+    reason: MASt3R-Code CC BY-NC-SA 4.0, Checkpoints an nicht kommerzielle Trainingsdaten gebunden
+  - name: superglue
+    reason: SuperGlue (Magic Leap) nur für nicht kommerzielle Forschung; ALIKED + LightGlue nutzen
 
-# Models/weights (regex on the models.lock name, case-insensitive).
+# Models/weights (regex on the models.lock name and source, case-insensitive).
 models:
   - pattern: 'superpoint'
-    reason: SuperPoint weights (Magic Leap) are non-commercial; use ALIKED + LightGlue
+    reason: SuperPoint-Gewichte (Magic Leap) nicht kommerziell; ALIKED + LightGlue verwenden
+  - pattern: 'superglue'
+    reason: SuperGlue-Gewichte (Magic Leap) nicht kommerziell; LightGlue verwenden
   - pattern: 'dust3r'
-    reason: DUSt3R weights CC BY-NC-SA 4.0
+    reason: DUSt3R-Checkpoints an nicht kommerzielle Trainingsdaten gebunden
   - pattern: 'mast3r'
-    reason: MASt3R weights CC BY-NC-SA 4.0
+    reason: MASt3R-Checkpoints an nicht kommerzielle Trainingsdaten gebunden
   - pattern: 'inria|3dgs[-_ ]?original'
-    reason: Inria 3DGS weights/checkpoints are non-commercial
+    reason: Inria-3DGS-Checkpoints nicht kommerziell
+  - pattern: 'depth[-_ ]?anything.*(base|large|giant|vit[-_]?[bgl])'
+    reason: Depth-Anything-V2 Base/Large/Giant sind CC-BY-NC-4.0 (nur Small ist Apache-2.0)
+  - pattern: 'vggt(?!.*commercial)'
+    reason: Original-VGGT-Checkpoint nicht kommerziell (nur VGGT-1B-Commercial nach PO-Freigabe)
 
 # Python modules of copyleft tools that may only run in their own container/process,
-# never be imported from src/ (e.g. OpenMVS bindings, GPL mesh tools).
+# never be imported from src/ (e.g. OpenMVS bindings, GPL mesh tools, AGPL detectors).
 container_only_modules:
   - pymeshlab # GPL-3.0
   - openmvs # AGPL-3.0 (OpenMVS)
   - pyopenmvs
+  - ultralytics # YOLOv8/11, AGPL-3.0
