@@ -139,7 +139,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich Git LFS für Videos in `data/s
 
 **Akzeptanzkriterien**
 
-- [ ] `.gitattributes` leitet `data/samples/**/*.mp4` (und weitere Videoformate) über LFS.
+- [ ] `.gitattributes` leitet `data/samples/**/*.{mp4,mov,mkv}` über LFS; ein Test prüft `git check-attr filter` → `lfs`.
 - [ ] `make setup` führt `git lfs install` aus bzw. meldet fehlendes git-lfs verständlich.
 
 
@@ -687,7 +687,7 @@ Als **Pilot** möchte ich dass der Claude-Code-Hook alle gängigen Wege zu echte
 
 - [ ] Blockiert zusätzlich MAVProxy `udpout:`/`udpin:`/`tcpin:`, serielle Geräte außerhalb `/dev/tty*`, pymavlink/DroneKit-Verbindungen und MAVSDK-URIs zu fremden Adressen.
 - [ ] `localhost` bzw. `127.0.0.0/8` gilt als SITL und bleibt erlaubt.
-- [ ] Die `xfail`-Tests aus KAN-22 werden zu regulären Tests; Flug-CLI verlangt für echte Flüge zusätzlich ein interaktives Terminal mit Bestätigung.
+- [ ] Die `xfail`-Tests aus KAN-22 werden zu regulären Tests.
 
 
 ## EP-11 / KAN-14 – Qualitätssicherung & Compliance
@@ -754,24 +754,24 @@ Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-
 
 `Story` · **Should** · 1 SP · M1 MVP „Video → Begehung“ · Labels: compliance, server, viewer, claude-code · Abhängig von: US-028 / KAN-43, US-037 / KAN-52
 
-Als **Betrachtende (Interessent)** möchte ich im Viewer und in der API-Doku einen Link zum Quellcode sehen, damit die AGPL-Pflichten (ADR-0011) auch bei Netzbetrieb erfüllt sind.
+Als **Entwickler (PO + Claude Code)** möchte ich dass Viewer und API-Doku Lizenz und Quellcode-Link anzeigen, damit die AGPL-Pflichten (ADR-0011) auch bei Netzbetrieb erfüllt sind.
 
 **Akzeptanzkriterien**
 
 - [ ] Viewer-Menü und OpenAPI-Beschreibung zeigen Lizenz (AGPL-3.0-or-later) und einen konfigurierbaren Quellcode-Link.
-- [ ] Der Vite-Build liefert Source Maps bzw. nicht-minifizierte Quellen aus oder verlinkt sie.
+- [ ] Der Vite-Build liefert Source Maps bzw. nicht-minifizierte Quellen aus oder verlinkt sie; die Build-Anleitung ist dokumentiert.
 - [ ] Ein Test prüft, dass der Link in API und Viewer vorhanden ist.
 
 ### US-061 / KAN-76: CLA und CONTRIBUTING.md
 
 `Task` · **Should** · 1 SP · M1 MVP „Video → Begehung“ · Labels: compliance · Abhängig von: –
 
-Als **Entwickler (PO + Claude Code)** möchte ich einen Contributor License Agreement und eine Beitragsanleitung, damit externe Beiträge angenommen werden können, ohne die Doppellizenzierung (ADR-0011) zu verhindern.
+Als **Entwickler (PO + Claude Code)** möchte ich ein Contributor License Agreement und eine Beitragsanleitung, damit externe Beiträge angenommen werden können, ohne die Doppellizenzierung (ADR-0011) zu verhindern.
 
 **Akzeptanzkriterien**
 
 - [ ] `CONTRIBUTING.md` beschreibt Ablauf, Konventionen und CLA-Pflicht.
-- [ ] CLA-Text liegt vor und ist rechtlich geprüft (Rechtsberatung vor M4).
+- [ ] CLA-Entwurf liegt vor; die rechtliche Prüfung erfolgt mit der Rechtsberatung vor M4 (docs/projektmanagement.md §8).
 
 ### US-062 / KAN-77: SPDX-Lizenzheader in Quelldateien
 
@@ -781,7 +781,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich in jeder Quelldatei `SPDX-Lice
 
 **Akzeptanzkriterien**
 
-- [ ] Alle Dateien in `src/`, `tests/`, `tools/` (später `viewer/`) tragen den SPDX-Header.
+- [ ] Alle Dateien in `src/`, `tests/`, `tools/` (später `viewer/`, `flight/`) tragen den SPDX-Header.
 - [ ] Ein pre-commit-Hook oder Test meldet fehlende Header.
 
 
