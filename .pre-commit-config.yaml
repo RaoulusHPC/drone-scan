@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=20480"] # CLAUDE.md rule 5: > 20 MB only via Git LFS
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.6
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+        files: ^(src|tests)/ # same scope as `make lint`
+      - id: ruff-format
+        files: ^(src|tests)/
