@@ -149,6 +149,9 @@ def test_real_gpu_respects_limit() -> None:
     request = min(int((settings.vram_limit_gb + 0.25) * GIB), total - GIB // 4)
     if request <= settings.vram_limit_gb * GIB:
         pytest.skip("card too small to distinguish the limit from physical memory")
+    free_bytes, _ = torch.cuda.mem_get_info()
+    if request >= free_bytes:
+        pytest.skip("not enough free VRAM (display/other processes); OOM would not prove the limit")
 
     apply_vram_limit(settings)
 
