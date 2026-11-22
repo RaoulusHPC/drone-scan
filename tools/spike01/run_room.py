@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,14 +45,20 @@ from tools.spike01.frames import (  # noqa: E402
     select_keyframes,
 )
 
-GPU_LOCK: Path | None = None  # set in main(): one GPU stage at a time across all running jobs
+# One GPU stage at a time across ALL running jobs of this user (not per work directory).
+GPU_LOCK: Path | None = Path(os.environ.get("DRONESCAN_GPU_LOCK", "/tmp/dronescan-gpu.lock"))
 GPU_INDEX = "0"  # GTX 1060 (nvidia-smi / PCI bus order); the RTX 2070 SUPER is not used
 ANALYSIS_FPS = 6
 ANALYSIS_EDGE = 480
 
 
 class GpuSampler:
-    """Polls the used memory of GPU 0 while a stage runs (MiB above the idle baseline)."""
+    """Polls the memory of the biggest compute process on GPU 0 while a stage runs.
+
+    ``nvidia-smi --query-compute-apps`` reports the memory of a whole process including its CUDA
+    context (the quantity of Q-2). The display does not appear there (graphics, not compute),
+    which avoids the drifting baseline of a whole-GPU measurement.
+    """
 
     def __init__(self) -> None:
         self.baseline = self._used()
@@ -63,22 +70,19 @@ class GpuSampler:
     def _used() -> int:
         out = subprocess.run(
             [
-                "nvidia-smi",
-                "-i",
-                GPU_INDEX,
-                "--query-gpu=memory.used",
-                "--format=csv,noheader,nounits",
+                "nvidia-smi", "-i", GPU_INDEX,
+                "--query-compute-apps=used_memory", "--format=csv,noheader,nounits",
             ],
             capture_output=True,
             text=True,
             check=True,
-        ).stdout
-        return int(out.strip())
+        ).stdout  # fmt: skip
+        return max((int(value) for value in out.split() if value.isdigit()), default=0)
 
     def _run(self) -> None:
         while not self._stop.is_set():
             self.peak = max(self.peak, self._used())
-            self._stop.wait(0.4)
+            self._stop.wait(0.25)
 
     def __enter__(self) -> GpuSampler:
         self._thread.start()
@@ -90,8 +94,8 @@ class GpuSampler:
         self.peak = max(self.peak, self._used())
 
     @property
-    def over_baseline_mib(self) -> int:
-        return self.peak - self.baseline
+    def process_peak_mib(self) -> int:
+        return self.peak
 
 
 class Recorder:
@@ -121,8 +125,7 @@ class Recorder:
             entry: dict[str, object] = {"seconds": round(time.perf_counter() - started, 1)}
             if sampler:
                 sampler.__exit__()
-                entry["gpu_over_baseline_mib"] = sampler.over_baseline_mib
-                entry["gpu_baseline_mib"] = sampler.baseline
+                entry["gpu_process_peak_mib"] = sampler.process_peak_mib
             if lock:
                 lock.close()  # releases the lock
             stages = self.data.setdefault("stages", {})
@@ -130,6 +133,23 @@ class Recorder:
             stages[name] = entry
             self.set("stages", stages)
             print(f"[{name}] {entry}", flush=True)
+
+
+def ensure_private_work_dir(work: Path) -> None:
+    """Recordings and derived data must stay out of git: outside the repo or git-ignored."""
+    resolved = work.resolve()
+    if resolved != ROOT and ROOT not in resolved.parents:
+        return
+    relative = resolved.relative_to(ROOT)
+    ignored = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "-q", str(relative / "probe")],
+        check=False,
+    )
+    if ignored.returncode != 0:
+        raise SystemExit(
+            "--work must be outside the repository or git-ignored (e.g. under workspace/): "
+            "it holds private recordings"
+        )
 
 
 def run(cmd: Sequence[str | Path]) -> subprocess.CompletedProcess[str]:
@@ -348,7 +368,7 @@ def stage_train(args: argparse.Namespace, room: Path, rec: Recorder) -> None:
         "--width", str(args.train_width), "--iterations", str(args.iterations),
         "--strategy", args.strategy, "--cap", str(args.cap), "--sh-degree", str(args.sh_degree),
         "--save-renders", str(args.save_renders),
-        "--log-every", str(max(100, args.iterations // 10)),
+        "--log-every", str(min(500, max(100, args.iterations // 10))),
     ]  # fmt: skip
     if args.packed:
         cmd.append("--packed")
@@ -365,7 +385,7 @@ def stage_train(args: argparse.Namespace, room: Path, rec: Recorder) -> None:
     metrics.pop("log", None)
     stages = rec.data["stages"]
     assert isinstance(stages, dict)
-    metrics["gpu_over_baseline_mib"] = stages[stage]["gpu_over_baseline_mib"]
+    metrics["gpu_process_peak_mib"] = stages[stage]["gpu_process_peak_mib"]
     metrics["exit_code"] = result.returncode
     rec.set(f"train_{tag}", metrics)
     print(f"[train {tag}] {json.dumps(metrics)}", flush=True)
@@ -439,11 +459,8 @@ def main() -> int:
     args = parser.parse_args()
 
     work = Path(args.work)
-    if ROOT in work.resolve().parents or work.resolve() == ROOT:
-        raise SystemExit("--work must be outside the repository (private recordings)")
+    ensure_private_work_dir(work)
     work.mkdir(parents=True, exist_ok=True)
-    global GPU_LOCK
-    GPU_LOCK = work / ".gpu.lock"
     room = work / args.room
     room.mkdir(parents=True, exist_ok=True)
     recorder = Recorder(room / "results.json")

@@ -249,7 +249,7 @@ def save_renders(
 def train(args: argparse.Namespace) -> dict[str, Any]:
     device = torch.device("cuda")
     settings = load_settings(args.profile)
-    apply_vram_limit(settings, device.index)
+    allocator_fraction = apply_vram_limit(settings, device.index)
     torch.manual_seed(args.seed)
     torch.cuda.reset_peak_memory_stats()
     started = time.perf_counter()
@@ -354,6 +354,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     free, total = torch.cuda.mem_get_info()
     return {
         "ok": True,
+        "vram_limit_gb": settings.vram_limit_gb,
+        "allocator_fraction": round(allocator_fraction, 4),
         "device": torch.cuda.get_device_name(0),
         "capability": list(torch.cuda.get_device_capability(0)),
         "strategy": args.strategy,
@@ -411,29 +413,43 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    for required in ("cameras.txt", "images.txt", "points3D.txt"):
-        if not (Path(args.scene) / required).is_file():
-            print(f"missing input: {required}", file=sys.stderr)
-            return 10
+    scene, raw = Path(args.scene), Path(args.raw)
+    missing = [
+        name
+        for name in ("cameras.txt", "images.txt", "points3D.txt")
+        if not (scene / name).is_file()
+    ]
+    if missing or not raw.is_dir():
+        print(f"missing input: {', '.join(missing) or 'raw frames directory'}", file=sys.stderr)
+        return 10
+    summary_keys = {
+        "iterations": args.iterations,
+        "train_width": args.width,
+        "strategy": args.strategy,
+        "cap": args.cap if args.strategy == "mcmc" else None,
+    }
+    code = 0
     try:
         result = train(args)
-        code = 0
-    except torch.cuda.OutOfMemoryError as error:
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as error:
+        # CUDA out-of-memory outside the allocator (context, cuBLAS handle) is a plain RuntimeError
+        if not isinstance(error, torch.cuda.OutOfMemoryError) and "out of memory" not in str(error):
+            raise
         result = {
             "ok": False,
             "error": "out of memory",
             "detail": str(error).splitlines()[0],
             "peak_allocated_mib": round(torch.cuda.max_memory_allocated() / MIB, 1),
             "peak_reserved_mib": round(torch.cuda.max_memory_reserved() / MIB, 1),
-            "iterations": args.iterations,
-            "train_width": args.width,
-            "strategy": args.strategy,
-            "cap": args.cap,
+            **summary_keys,
         }
         code = 30
+    except Exception as error:
+        result = {"ok": False, "error": type(error).__name__, **summary_keys}
+        (out / "metrics.json").write_text(json.dumps(result, indent=2))
+        raise
     (out / "metrics.json").write_text(json.dumps(result, indent=2))
-    summary = {k: v for k, v in result.items() if k != "log"}
-    print(json.dumps(summary), flush=True)
+    print(json.dumps({k: v for k, v in result.items() if k != "log"}), flush=True)
     return code
 
 

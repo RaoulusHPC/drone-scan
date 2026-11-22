@@ -8,9 +8,12 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
+from tools.spike01 import run_room
 from tools.spike01.colmap_text import (
     Camera,
     RegistrationStats,
@@ -253,6 +256,61 @@ def test_colmap_option_args_rejects_an_option_without_value() -> None:
         colmap_option_args("Mapper", ["init_min_tri_angle"])
 
 
+def test_work_directory_must_be_private() -> None:
+    """Given the repository root,
+    When a work directory for private recordings is checked,
+    Then a tracked location inside the repo is refused, a git-ignored one (workspace/) and a
+    directory outside the repo are accepted.
+    """
+    with pytest.raises(SystemExit, match="outside the repository"):
+        run_room.ensure_private_work_dir(ROOT / "docs" / "spike-work")
+
+    run_room.ensure_private_work_dir(ROOT / "workspace" / "spike-kan19" / "work")
+    run_room.ensure_private_work_dir(Path("/tmp/spike-work"))
+
+
+def test_gpu_stage_lock_serializes_two_jobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given two jobs that both run a GPU stage and share the GPU lock file,
+    When the second one starts while the first one is inside its stage,
+    Then it waits until the first has left (GPU jobs never run in parallel).
+    """
+
+    class FakeSampler:
+        process_peak_mib = 0
+
+        def __enter__(self) -> FakeSampler:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(run_room, "GPU_LOCK", tmp_path / "gpu.lock")
+    monkeypatch.setattr(run_room, "GpuSampler", FakeSampler)
+    order: list[str] = []
+    first_inside = threading.Event()
+
+    def job(name: str, hold: bool) -> None:
+        recorder = run_room.Recorder(tmp_path / f"{name}.json")
+        with recorder.stage("gpu_stage", gpu=True):
+            order.append(f"{name}-in")
+            if hold:
+                first_inside.set()
+                time.sleep(0.4)
+            order.append(f"{name}-out")
+
+    first = threading.Thread(target=job, args=("a", True))
+    first.start()
+    first_inside.wait(timeout=5)
+    second = threading.Thread(target=job, args=("b", False))
+    second.start()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert order == ["a-in", "a-out", "b-in", "b-out"]
+
+
 # --- tests that run the spike tools inside the worker image (marked gpu: image and GTX 1060) ---
 
 
@@ -319,7 +377,7 @@ def test_trainer_learns_a_synthetic_scene_on_the_gtx_1060(tmp_path: Path, strate
     assert result.returncode == 0, result.stderr[-2000:]
     metrics = json.loads((tmp_path / "out" / "metrics.json").read_text())
     assert metrics["ok"] is True
-    assert metrics["capability"] == [6, 1]
+    assert tuple(metrics["capability"]) >= (6, 1)  # GTX 1060 here, RTX 2060 (7, 5) on target
     assert metrics["images_holdout"] == 3 and metrics["images_train"] == 9
     assert metrics["heldout"]["psnr"] > 20.0
     assert metrics["heldout"]["ssim"] > 0.8
@@ -349,3 +407,53 @@ def test_trainer_memory_stress_mode_uses_the_requested_gaussian_count(tmp_path: 
     metrics = json.loads((tmp_path / "out" / "metrics.json").read_text())
     assert metrics["init_points"] == 5000 and metrics["final_gaussians"] == 5000
     assert metrics["peak_allocated_mib"] > 0
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_trainer_reports_missing_input_with_exit_code_10(tmp_path: Path) -> None:
+    """Given a scene directory without COLMAP files, and a scene without raw frames,
+    When the trainer starts,
+    Then it exits with code 10 (input missing, stage contract) instead of a traceback.
+    """
+    no_scene = _worker(
+        tmp_path,
+        "python", "-m", "tools.spike01.train_gsplat",
+        "--scene", "/work/missing", "--raw", "/work/missing",
+        "--out", "/work/out", "--width", "320",
+    )  # fmt: skip
+    assert no_scene.returncode == 10, no_scene.stderr[-1000:]
+
+    scene = _worker(tmp_path, "python", "-m", "tools.spike01.synth_scene", "/work/scene")
+    assert scene.returncode == 0, scene.stderr[-2000:]
+    no_raw = _worker(
+        tmp_path,
+        "python", "-m", "tools.spike01.train_gsplat",
+        "--scene", "/work/scene", "--raw", "/work/nope", "--out", "/work/out", "--width", "320",
+    )  # fmt: skip
+    assert no_raw.returncode == 10, no_raw.stderr[-1000:]
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_sharpness_is_higher_for_sharp_than_for_blurred_frames(tmp_path: Path) -> None:
+    """Given a checkerboard frame and the same frame averaged with its neighbours,
+    When the Laplacian variance is computed (in the worker image, numpy),
+    Then the sharp frame scores far higher, so motion blur lowers the score.
+    """
+    script = """
+import numpy as np
+from tools.spike01.sharpness import laplacian_variance
+y, x = np.mgrid[0:64, 0:64]
+sharp = (((x // 4 + y // 4) % 2) * 255).astype(np.uint8)
+padded = np.pad(sharp.astype(np.float32), 2, mode="edge")
+blurred = sum(
+    padded[dy:dy + 64, dx:dx + 64] for dy in range(5) for dx in range(5)
+) / 25
+scores = laplacian_variance(np.stack([sharp, blurred.astype(np.uint8)]))
+print(scores[0] > 10 * scores[1] > 0)
+"""
+    result = _worker(tmp_path, "python", "-", stdin=script)
+
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert result.stdout.strip().splitlines()[-1] == "True"
