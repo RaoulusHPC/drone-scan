@@ -2,7 +2,7 @@
 
 - **Datum:** 21. bis 22.11.2026
 - **Hardware:** GTX 1060 6 GiB (Pascal, `sm_61`, steuert den Bildschirm), `CUDA_VISIBLE_DEVICES=0`, fp32. Die RTX 2070 SUPER wurde nicht benutzt.
-- **Software:** Images aus KAN-18 (CUDA 12.6.3, PyTorch 2.14.1+cu126, gsplat v1.5.3 mit Pascal-Patch, COLMAP 4.2.1). PyTorch-Allocator-Grenze `DRONESCAN_VRAM_LIMIT_GB=5.0` (Anteil 0,8443 der Karte, in jeder `metrics.json` festgehalten).
+- **Software:** Images aus KAN-18 (CUDA 12.6.3, PyTorch 2.14.1+cu126, gsplat v1.5.3 mit Pascal-Patch, COLMAP 4.2.1). PyTorch-Allocator-Grenze `DRONESCAN_VRAM_LIMIT_GB=5.0` (Anteil 0,8443 der Karte, in den `metrics.json` der neueren Läufe festgehalten: Stresstest und lange Läufe).
 - **Daten:** zwei private Smartphone-Clips (je ca. 86 s, H.264, 30 fps variabel), **nur lokal verarbeitet**. Dieser Bericht enthält nur Zahlen und Text: keine Frames, Splats, Screenshots oder Renderings. Die Sichtprüfung der Ergebnisse macht der PO lokal (Abschnitt 8).
 - **Werkzeuge:** `tools/spike01/` (nur Code; Aufruf in Abschnitt 10).
 
@@ -11,7 +11,7 @@
 | Frage | Ergebnis |
 |---|---|
 | **AK2:** gsplat-Training auf Pascal (`sm_61`, fp32) | **Nachgewiesen.** Training bis 15 000 Iterationen und 1,5 Mio. Gaussians läuft durch, mit Default- und MCMC-Strategie, ohne Fallback. Das schließt den offenen Punkt aus R-03/R-13/ADR-0010. |
-| **R-03 / Q-2:** Speicher ≤ 5,5 GiB je Prozess inkl. CUDA-Kontext | **Eingehalten, mit großem Abstand.** Realer Trainingslauf mit Wachstum bis zum Cap von 1,5 Mio. Gaussians (inkl. Verschiebe- und Auswahlschritten): **Prozess-Peak 2,6 bis 2,7 GiB** (Allocator-Peak 2,0 GiB, reserviert 2,5 bis 2,6 GiB, Kontext 0,12 GiB). |
+| **R-03 / Q-2:** Speicher ≤ 5,5 GiB je Prozess inkl. CUDA-Kontext | **Eingehalten, mit großem Abstand.** Realer Trainingslauf mit Wachstum bis zum Cap von 1,5 Mio. Gaussians (inkl. Verschiebe- und Auswahlschritten): **Prozess-Peak 2,6 bis 2,7 GiB** (ein abgetasteter Wert von 2,68 GiB, zwei Schätzungen als reserviert + Kontext; Allocator-Peak 2,0 GiB, reserviert 2,5 bis 2,6 GiB, Kontext 0,12 GiB). |
 | **Q-3 / R-01:** ≥ 90 % registrierte Keyframes | **Clip 1: 100 %** (164/164). **Clip 2: nein**, beste Variante 58,5 % (138/236), das Modell zerfällt in 4 bis 5 Teile. R-01 tritt ein. Keine der getesteten Gegenmaßnahmen reicht. |
 | **Q-1:** ≤ 60 min Gesamtlaufzeit | **Nicht verifizierbar.** Für den 86-s-Clip 1 braucht die Kette auf der GTX 1060 **63 min** (Training mit 15 000 Iterationen: 49 min). Q-1 gilt für ca. 4 min Video auf der RTX 2060, die nicht gemessen wurde (Abschnitt 8). |
 | **AK1:** 3 Referenzräume | **Nur 2 Clips** (Keller und Treppenhaus, keiner passt genau auf die drei Kategorien). Der PO hat entschieden, den Spike mit diesen zwei Räumen abzuschließen. |
@@ -28,7 +28,7 @@ Je Clip eine Kette aus Ingest, SfM und Training, nacheinander (nie zwei GPU-Jobs
 3. **Training** (Container `worker`): COLMAP-Undistortion (PINHOLE), eigener schlanker Trainer mit `gsplat.rasterization` und `DefaultStrategy` bzw. `MCMCStrategy`, SH-Grad 3, L1 + 0,2·(1−SSIM). Jedes 8. Bild (in Namensreihenfolge) wird zurückgehalten. Metriken PSNR/SSIM auf den zurückgehaltenen Bildern.
 4. **Messung:**
    - *Laufzeit:* Wandzeit je Stufe inkl. Container-Start (ca. 1 bis 2 s).
-   - *GPU-Speicher, Training:* `torch.cuda.max_memory_allocated/reserved` und der **Prozess-Peak** aus `nvidia-smi --query-compute-apps` (größter Rechenprozess auf GPU 0, Abtastung alle 0,25 s). Er enthält den CUDA-Kontext und ist die Größe aus Q-2. Der Bildschirm taucht dort nicht auf.
+   - *GPU-Speicher, Training:* `torch.cuda.max_memory_allocated/reserved` und der **Prozess-Peak** aus `nvidia-smi --query-compute-apps` (größter Rechenprozess auf GPU 0, Abtastung alle 0,25 s). Er enthält den CUDA-Kontext und ist die Größe aus Q-2. Der Bildschirm taucht dort nicht auf. Läuft zusätzlich ein größerer fremder Rechenprozess auf der GPU, würde er dem Training zugeschrieben. Stichproben vor den Läufen zeigten daneben nur kleine Rechenprozesse (höchstens ca. 60 MiB), lückenlos geprüft ist das nicht.
    - *Einschränkung früherer Messungen:* Zuerst habe ich den Gesamtverbrauch der GPU abzüglich einer Bildschirm-Baseline gemessen. Das war unzuverlässig (Baseline schwankte 1025 bis 1273 MiB, ein Wert lag unter dem reservierten PyTorch-Speicher). **Diese Werte sind im Bericht verworfen**, die Trainingsläufe wurden mit der Prozessmessung wiederholt. Nur die SfM-Werte in Abschnitt 4 stammen noch aus der alten Messung und gelten als Größenordnung (±0,2 GiB).
 
 ## 3. Eingangsdaten
@@ -60,7 +60,7 @@ Die GPU-Speicherwerte der SfM-Stufen stammen aus der verworfenen Gesamt-GPU-Mess
 
 ## 5. Clip 2: Gegenmaßnahmen (Timebox: 3 bis 4)
 
-Alle Varianten laufen auf Clip 2. Die Zeilen 4 und 6 ändern je einen Parameter gegenüber der Basis „erschöpfendes Matching“ (Zeile 3), Zeile 5 und 7 je zwei.
+Alle Varianten laufen auf Clip 2. Die Zeilen 4 bis 7 ändern gegenüber der Basis „erschöpfendes Matching“ (Zeile 3) je zwei Parameter (siehe Spalte „Variante“).
 
 | Variante | Keyframes | Registriert | % | Modelle | Matching | Mapper |
 |---|---|---|---|---|---|---|
@@ -96,7 +96,7 @@ Alle Varianten laufen auf Clip 2. Die Zeilen 4 und 6 ändern je einen Parameter 
 - **MCMC schlägt Default** in diesem Vergleich um ca. 0,7 bis 1,0 dB PSNR und 0,014 SSIM, bei halber Gaussian-Zahl und halbem Speicher. **Einschränkung:** Den Zeitplan der Default-Strategie habe ich für 7000 Iterationen selbst skaliert (`refine_stop` bei 3500, `reset_every` 700; die Referenz nutzt 15 000 bzw. 3000 bei 30 000 Iterationen). Das kann Default benachteiligen. Der Vorsprung ist also nicht mit dem Referenzzeitplan abgesichert.
 - **Unterschiede unter etwa 0,2 dB sind nicht aussagekräftig:** Die drei MCMC-Läufe mit 1200 px haben dieselben 508 981 Gaussians, streuen aber um 0,3 dB (Seed fest, `atomicAdd`-Reihenfolge nicht deterministisch). Jede Variante ist ein einzelner Lauf.
 - **Die Caps 1 Mio. und 1,5 Mio. wurden bei 7000 Iterationen nie erreicht.** MCMC wächst von 44 393 Start-Punkten um 5 % je Aufräumschritt ab Iteration 500 und endet mit `refine_stop` bei 5600 bei 509 000 Gaussians. Das erklärt die identischen Zahlen (die Rechnung 44 393 · 1,05^50 ≈ 509 000 passt). Die Mittelwerte der Zeit je Iteration sind deshalb bei 7000 Iterationen **nicht auf längere Läufe übertragbar** (Abschnitt 6.2).
-- **1600 px statt 1200 px** kostet 58 % mehr Zeit und bringt keine bessere Qualität (Default: 25,37 gegenüber 25,53 dB). 960 px ist 28 % schneller als 1200 px bei vergleichbarer Qualität (26,44 gegenüber 26,2 bis 26,5 dB, MCMC).
+- **1600 px statt 1200 px** kostet 58 % mehr Zeit und bringt keine bessere Qualität (Default: 25,37 gegenüber 25,53 dB). 960 px ist 28 bis 30 % schneller als 1200 px (je nach Vergleichslauf) bei vergleichbarer Qualität (26,44 gegenüber 26,2 bis 26,5 dB, MCMC).
 - Der Abstand zwischen zurückgehaltenen Frames und Trainingsansichten beträgt bei Clip 1 1,5 bis 3,7 dB (MCMC 1,5 bis 1,8 dB, Default 3,7 dB).
 - **SSIM** ist eine eigene Implementierung mit Null-Auffüllung am Rand (Gauß-Fenster 11, σ 1,5). Die Absolutwerte sind mit Literaturwerten nicht direkt vergleichbar, nur untereinander.
 
@@ -108,7 +108,7 @@ Alle Varianten laufen auf Clip 2. Die Zeilen 4 und 6 ändern je einen Parameter 
 | Clip 1, Wiederholung | 1 500 000 | **27,66** | 0,910 | 30,84 | 2946 s | 2,01 GiB | 2,51 GiB | **2,63 GiB** (*) |
 | Clip 2, bestes Teilmodell (138 Bilder, 120/18) | 1 500 000 | 25,15 | 0,882 | 31,01 | 2567 s (43 min) | 1,92 GiB | 2,49 GiB | **2,61 GiB** (*) |
 
-(*) Der abgetastete Prozess-Peak lag bei diesen beiden Läufen unter dem von PyTorch reservierten Speicher (2598 MiB gegenüber 2572 MiB reserviert; 2496 MiB gegenüber 2552 MiB), das ist nicht möglich. Vermutlich ist eine `nvidia-smi`-Abfrage unter Last fehlgeschlagen und hat die Abtastung beendet (im Runner behoben, die Läufe sind nicht wiederholt). Angegeben ist deshalb **reserviert + 124 MiB Kontext**. Der Kontext war in allen Stresstests konstant 124 MiB (Prozess-Peak minus reserviert). Beim ersten Lauf stimmt die Abtastung mit dieser Rechnung überein (2746 MiB).
+(*) **Schätzung, keine Messung.** Bei diesen beiden Läufen passt der abgetastete Prozess-Peak nicht zum reservierten Speicher: Er lag nur 26 MiB darüber (2598 MiB gegenüber 2572 MiB reserviert) bzw. 56 MiB darunter (2496 MiB gegenüber 2552 MiB). Mit einem Kontext von rund 124 MiB ist das nicht möglich. Vermutlich ist eine `nvidia-smi`-Abfrage unter Last fehlgeschlagen und hat die Abtastung beendet (im Runner behoben, die Läufe sind nicht wiederholt). Angegeben ist deshalb **reserviert + 124 MiB Kontext**. Der Kontext war in allen vier Stresstests exakt 124 MiB (Prozess-Peak minus reserviert) und im ersten langen Lauf 122 MiB (2746 gegenüber 2624 MiB, die einzige verlässlich abgetastete Messung der langen Läufe).
 
 **Wachstum und Zeit je Iteration (Clip 1, aus dem Trainingslog):**
 
@@ -122,7 +122,7 @@ Alle Varianten laufen auf Clip 2. Die Zeilen 4 und 6 ändern je einen Parameter 
 | 8000 bis 15 000 | 1 500 000 | 0,23 bis 0,26 | 2,00 GiB | 2,56 GiB |
 
 **Lesart**
-- Der Lauf reicht **durch die Wachstumsphase bis ins Plateau am Cap** und enthält alle Auswahl- und Verschiebeschritte der MCMC-Strategie bei voller Größe (7000 Iterationen im Plateau). Der Peak ändert sich ab Iteration 8000 nicht mehr. Damit ist das Budget für **Training bis 1,5 Mio. Gaussians bei 1200 px gemessen**: Prozess-Peak ≤ 2,7 GiB inkl. CUDA-Kontext, weit unter 5,5 GiB.
+- Der Lauf reicht **durch die Wachstumsphase bis ins Plateau am Cap**. Die Aufräum- und Verschiebeschritte der MCMC-Strategie laufen bis Iteration 12 000 (`refine_stop`), also rund 4000 Iterationen bei voller Größe. Danach sinkt die Zeit je Iteration von 0,255 auf 0,236 s. Der Peak ändert sich ab Iteration 8000 nicht mehr. Damit ist das Budget für **Training bis 1,5 Mio. Gaussians bei 1200 px gemessen**: Prozess-Peak ≤ 2,7 GiB inkl. CUDA-Kontext (eine abgetastete Messung, zwei Schätzungen), weit unter 5,5 GiB.
 - Qualität: 27,6 bis 27,7 dB gegenüber 26,2 bis 26,5 dB bei 7000 Iterationen (**+1,2 dB**). Der Gewinn stammt aus beidem (mehr Iterationen und mehr Gaussians), das ist nicht getrennt.
 - **Zeit:** Am Anfang kostet eine Iteration 0,10 s, im Plateau 0,25 s. Ein konstanter Mittelwert führt in die Irre. Aus dem Log: 15 000 Iterationen = 49 min. 30 000 Iterationen wären **ca. 112 min** (8000 Iterationen bis zum Cap in 1210 s, danach 22 000 · 0,25 s; Rechnung aus dem Plateauwert, nicht gemessen).
 - **Clip 2** erreicht auf seinem Teilmodell 25,15 dB auf zurückgehaltenen Frames, aber 31,0 dB auf den Trainingsansichten: **5,9 dB Abstand** gegenüber 3,2 dB bei Clip 1. Mit 120 Trainingsbildern aus einem zerstückelten Modell passt sich das Modell stark an die Trainingsansichten an. Das ist ein Hinweis auf geringe Abdeckung, nicht auf einen Fehler im Trainer. Das Modell deckt nur 58 % der Aufnahme ab.
@@ -150,7 +150,7 @@ Bei 1600 px: 2 Mio. ok (3,16 GiB Allocator-Peak), 4 Mio. OOM.
 |---|---|---|---|
 | `splat.strategy` (neu) | – | `mcmc` | bessere Qualität und kleinerer Speicher als Default (6.1, mit dem Vorbehalt zum Default-Zeitplan) |
 | `splat.max_image_edge_px` (neu, Trainingsbreite) | – | **1200** (960 als Schnellmodus) | 1600 px kostet 58 % mehr Zeit ohne Qualitätsgewinn |
-| `splat.max_gaussians` | 1 000 000 | **1 500 000** (gemessen) | Die Bedingung aus dem Profilkommentar („1,5 M nur, wenn KAN-19 ≤ 5,5 GiB gesamt misst“) ist erfüllt: Prozess-Peak 2,6 bis 2,7 GiB inkl. Kontext (6.2). Mehr als 1,5 Mio. ist mit Wachstum nicht gemessen |
+| `splat.max_gaussians` | 1 000 000 | **1 500 000** (gemessen) | Die Bedingung aus dem Profilkommentar („1,5 M nur, wenn KAN-19 ≤ 5,5 GiB gesamt misst“) ist erfüllt: Prozess-Peak 2,6 bis 2,7 GiB inkl. Kontext (6.2; ein Messwert, zwei Schätzungen). Mehr als 1,5 Mio. ist mit Wachstum nicht gemessen |
 | `splat.max_iterations` | 30 000 | **15 000 (vorläufig)** | 15 000 Iterationen = 49 min auf der 1060, 30 000 wären ca. 112 min und reißen Q-1. Die Qualitätskurve über die Iterationen ist nicht gemessen (nur 7000 und 15 000), die Zahl gehört in die `recon`-Story |
 | `gpu.allow_fp16` | `true` (nur sm_70+) | unverändert | auf Pascal fp32 (gemessen), sm_75 nicht gemessen |
 | `sfm.max_image_edge_px` | 1600 | **1600 beibehalten** | größere Bilder bringen keine bessere Quote (Abschnitt 5) |

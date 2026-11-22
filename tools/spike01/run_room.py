@@ -61,7 +61,9 @@ class GpuSampler:
     """
 
     def __init__(self) -> None:
-        self.baseline = self._used()
+        self.baseline = 0
+        with suppress(subprocess.CalledProcessError, OSError):
+            self.baseline = self._used()
         self.peak = self.baseline
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -93,7 +95,8 @@ class GpuSampler:
     def __exit__(self, *_: object) -> None:
         self._stop.set()
         self._thread.join()
-        self.peak = max(self.peak, self._used())
+        with suppress(subprocess.CalledProcessError, OSError):
+            self.peak = max(self.peak, self._used())
 
     @property
     def process_peak_mib(self) -> int:

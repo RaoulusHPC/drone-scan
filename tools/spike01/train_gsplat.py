@@ -431,9 +431,14 @@ def main(argv: list[str] | None = None) -> int:
     code = 0
     try:
         result = train(args)
-    except (torch.cuda.OutOfMemoryError, RuntimeError) as error:
+    except Exception as error:
         # CUDA out-of-memory outside the allocator (context, cuBLAS handle) is a plain RuntimeError
-        if not isinstance(error, torch.cuda.OutOfMemoryError) and "out of memory" not in str(error):
+        out_of_memory = isinstance(error, torch.cuda.OutOfMemoryError) or (
+            isinstance(error, RuntimeError) and "out of memory" in str(error)
+        )
+        if not out_of_memory:
+            failure = {"ok": False, "error": type(error).__name__, **summary_keys}
+            (out / "metrics.json").write_text(json.dumps(failure, indent=2))
             raise
         result = {
             "ok": False,
@@ -444,10 +449,6 @@ def main(argv: list[str] | None = None) -> int:
             **summary_keys,
         }
         code = 30
-    except Exception as error:
-        result = {"ok": False, "error": type(error).__name__, **summary_keys}
-        (out / "metrics.json").write_text(json.dumps(result, indent=2))
-        raise
     (out / "metrics.json").write_text(json.dumps(result, indent=2))
     print(json.dumps({k: v for k, v in result.items() if k != "log"}), flush=True)
     return code

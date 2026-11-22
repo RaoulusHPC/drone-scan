@@ -457,3 +457,25 @@ print(scores[0] > 10 * scores[1] > 0)
 
     assert result.returncode == 0, result.stderr[-2000:]
     assert result.stdout.strip().splitlines()[-1] == "True"
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_trainer_writes_metrics_for_other_failures(tmp_path: Path) -> None:
+    """Given raw frames whose size does not match the requested training width,
+    When the trainer fails with an error that is not out-of-memory,
+    Then it exits with an error (not 30) and still writes a metrics.json with ok=false.
+    """
+    scene = _worker(tmp_path, "python", "-m", "tools.spike01.synth_scene", "/work/scene")
+    assert scene.returncode == 0, scene.stderr[-2000:]
+
+    result = _worker(
+        tmp_path,
+        "python", "-m", "tools.spike01.train_gsplat",
+        "--scene", "/work/scene", "--raw", "/work/scene/raw", "--out", "/work/out",
+        "--width", "640", "--iterations", "10", "--sh-degree", "1",
+    )  # fmt: skip
+
+    assert result.returncode not in (0, 10, 30)
+    metrics = json.loads((tmp_path / "out" / "metrics.json").read_text())
+    assert metrics["ok"] is False and metrics["error"]
