@@ -101,16 +101,36 @@ def load_dataset(scene: Path, raw: Path, width: int) -> Dataset:
     )
 
 
+def random_points(data: Dataset, count: int, seed: int) -> None:
+    """Memory stress mode: replace the SfM cloud by ``count`` random points in its bounding box."""
+    generator = torch.Generator().manual_seed(seed)
+    low, high = data.points.min(dim=0).values, data.points.max(dim=0).values
+    data.points = low + (high - low) * torch.rand(count, 3, generator=generator)
+    data.point_colors = torch.rand(count, 3, generator=generator)
+
+
 def init_splats(
-    data: Dataset, *, sh_degree: int, init_opacity: float, init_scale: float, device: torch.device
+    data: Dataset,
+    *,
+    sh_degree: int,
+    init_opacity: float,
+    init_scale: float,
+    device: torch.device,
+    stress: bool = False,
 ) -> torch.nn.ParameterDict:
     points = data.points.to(device)
     colors = data.point_colors.to(device)
-    nearest = []
-    for start in range(0, len(points), 2048):  # 3 nearest neighbours, chunked to bound VRAM
-        distances = torch.cdist(points[start : start + 2048], points)
-        nearest.append(distances.topk(4, largest=False).values[:, 1:])
-    dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(1e-6)
+    if stress:  # a neighbour search over millions of points would itself need gigabytes
+        volume = (points.max(0).values - points.min(0).values).prod()
+        dist_avg = torch.full(
+            (len(points),), float((volume / len(points)) ** (1 / 3)), device=device
+        )
+    else:
+        nearest = []
+        for start in range(0, len(points), 2048):  # 3 nearest neighbours, chunked to bound VRAM
+            distances = torch.cdist(points[start : start + 2048], points)
+            nearest.append(distances.topk(4, largest=False).values[:, 1:])
+        dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(1e-6)
     count = len(points)
     sh_rest = (sh_degree + 1) ** 2 - 1
     return torch.nn.ParameterDict(
@@ -232,6 +252,8 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
 
     data = load_dataset(Path(args.scene), Path(args.raw), args.width)
+    if args.init_random:
+        random_points(data, args.init_random, args.seed)
     holdout = [i for i in range(len(data.names)) if i % args.holdout_every == 0]
     train_ids = [i for i in range(len(data.names)) if i not in set(holdout)]
     mcmc = args.strategy == "mcmc"
@@ -241,6 +263,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         init_opacity=0.5 if mcmc else 0.1,
         init_scale=0.1 if mcmc else 1.0,
         device=device,
+        stress=bool(args.init_random),
     )
     optimizers, scheduler = make_optimizers(params, data.scene_scale, args.iterations)
     strategy: DefaultStrategy | MCMCStrategy
@@ -368,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cap", type=int, default=1_000_000, help="Gaussian cap (mcmc only)")
     parser.add_argument("--sh-degree", type=int, default=3)
     parser.add_argument("--packed", action="store_true")
+    parser.add_argument(
+        "--init-random",
+        type=int,
+        default=0,
+        help="memory stress mode: start from N random Gaussians instead of the SfM cloud",
+    )
     parser.add_argument("--holdout-every", type=int, default=8)
     parser.add_argument("--profile", default="low_vram_6gb")
     parser.add_argument("--seed", type=int, default=0)

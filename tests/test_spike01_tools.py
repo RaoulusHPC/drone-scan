@@ -324,3 +324,28 @@ def test_trainer_learns_a_synthetic_scene_on_the_gtx_1060(tmp_path: Path, strate
     assert metrics["heldout"]["psnr"] > 20.0
     assert metrics["heldout"]["ssim"] > 0.8
     assert metrics["peak_allocated_mib"] < 5.0 * 1024
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_trainer_memory_stress_mode_uses_the_requested_gaussian_count(tmp_path: Path) -> None:
+    """Given a synthetic scene and --init-random 5000 (memory stress mode),
+    When the trainer runs 20 iterations,
+    Then it starts from exactly 5000 random Gaussians (no neighbour search on the cloud) and
+    reports the memory of that size.
+    """
+    scene = _worker(tmp_path, "python", "-m", "tools.spike01.synth_scene", "/work/scene")
+    assert scene.returncode == 0, scene.stderr[-2000:]
+
+    result = _worker(
+        tmp_path,
+        "python", "-m", "tools.spike01.train_gsplat",
+        "--scene", "/work/scene", "--raw", "/work/scene/raw", "--out", "/work/out",
+        "--width", "320", "--iterations", "20", "--sh-degree", "1", "--holdout-every", "4",
+        "--init-random", "5000", "--log-every", "10",
+    )  # fmt: skip
+
+    assert result.returncode == 0, result.stderr[-2000:]
+    metrics = json.loads((tmp_path / "out" / "metrics.json").read_text())
+    assert metrics["init_points"] == 5000 and metrics["final_gaussians"] == 5000
+    assert metrics["peak_allocated_mib"] > 0

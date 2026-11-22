@@ -247,6 +247,7 @@ def stage_sfm(args: argparse.Namespace, room: Path, rec: Recorder) -> None:
             "--FeatureExtraction.use_gpu", "1", "--FeatureExtraction.gpu_index", GPU_INDEX,
             "--FeatureExtraction.max_image_size", str(args.colmap_edge),
             "--SiftExtraction.max_num_features", str(args.max_features),
+            *colmap_option_args("SiftExtraction", args.sift_opt),
         )  # fmt: skip
     matcher_options = (
         ["--SequentialMatching.overlap", str(args.overlap)] if args.matcher == "sequential" else []
@@ -351,6 +352,8 @@ def stage_train(args: argparse.Namespace, room: Path, rec: Recorder) -> None:
     ]  # fmt: skip
     if args.packed:
         cmd.append("--packed")
+    if args.init_random:
+        cmd += ["--init-random", str(args.init_random)]
     stage = f"train_{tag}"
     with rec.stage(stage, gpu=True):
         result = subprocess.run(
@@ -414,6 +417,12 @@ def main() -> int:
     parser.add_argument("--overlap", type=int, default=10)
     parser.add_argument("--matcher", choices=["sequential", "exhaustive"], default="sequential")
     parser.add_argument(
+        "--sift-opt",
+        action="append",
+        default=[],
+        help="SiftExtraction option, e.g. peak_threshold=0.003",
+    )
+    parser.add_argument(
         "--mapper-opt", action="append", default=[], help="Mapper option, e.g. init_min_tri_angle=8"
     )
     parser.add_argument("--train-width", type=int, default=1600)
@@ -422,6 +431,9 @@ def main() -> int:
     parser.add_argument("--cap", type=int, default=1_000_000)
     parser.add_argument("--sh-degree", type=int, default=3)
     parser.add_argument("--packed", action="store_true")
+    parser.add_argument(
+        "--init-random", type=int, default=0, help="memory stress mode, see trainer"
+    )
     parser.add_argument("--save-renders", type=int, default=0)
     parser.add_argument("--tag", default="")
     args = parser.parse_args()
