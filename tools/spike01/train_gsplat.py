@@ -3,7 +3,10 @@
 Trains 3D Gaussians from a COLMAP-undistorted text model and raw RGB frames, on the
 GTX 1060 (sm_61, fp32) under the allocator limit of the profile (5.0 GiB), and reports
 time, memory and PSNR/SSIM on held-out frames as one JSON file. Written from the gsplat
-API (Apache-2.0) and the structure of its example trainer, not copied.
+API (Apache-2.0). Hyperparameters (learning rates, SSIM weight 0.8/0.2, MCMC opacity/scale
+regularization 0.01, init_opa/init_scale) follow the gsplat example trainer
+(examples/simple_trainer.py, the gsplat contributors / nerfstudio project, Apache-2.0,
+https://github.com/nerfstudio-project/gsplat). No source code was copied from it.
 
 Usage (see tools/spike01/run_room.py):
     python -m tools.spike01.train_gsplat --scene DIR --raw DIR --out DIR --width W ...
