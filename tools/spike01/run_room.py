@@ -25,7 +25,7 @@ import threading
 import time
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,7 +81,9 @@ class GpuSampler:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.peak = max(self.peak, self._used())
+            # a failed query under heavy GPU load must not end the sampling
+            with suppress(subprocess.CalledProcessError, OSError):
+                self.peak = max(self.peak, self._used())
             self._stop.wait(0.25)
 
     def __enter__(self) -> GpuSampler:
