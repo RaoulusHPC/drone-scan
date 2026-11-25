@@ -760,7 +760,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Tes
 
 **Akzeptanzkriterien**
 
-- [ ] `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat.
+- [ ] `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat. *(Stand KAN-26: Posen in ca. 50 s umgesetzt, Mini-Splat-Teil wartet auf KAN-41.)*
 - [ ] `make test-gpu` läuft mit 5,0-GiB-Allocator-Grenze auf der GTX 1060; Überschreitung lässt den Test fehlschlagen.
 - [ ] Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert.
 

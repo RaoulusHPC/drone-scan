@@ -311,6 +311,7 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 ### 8.8 Teststrategie
 - Unit-Tests (CPU) für alle Stufen.
 - Golden-Data-Integrationstest mit einem Kurzvideo (`data/samples/`, < 30 s) und einer Laufzeit unter 2 min.
+  `make smoke` (`python -m dronescan.common.smoke`) führt `ingest` und `sfm` auf `data/samples/kurz.mp4` aus und prüft die Schwellwerte in `tests/golden/kurz.yaml` (Exit 0 = ok, 1 = Abweichung oder Stufenfehler). Die Stufe `recon.splat` (KAN-41) wird automatisch mitgeprüft, sobald das CLI-Kommando `recon` existiert; der Splat-Test erwartet dann `metrics.psnr_db` im Manifest.
 - GPU-Tests (`-m gpu`) mit VRAM-Grenze.
 - Benchmarks (`-m bench`) auf 3 Referenzräumen mit Metriken.
 - Viewer: Playwright-E2E (Apache-2.0).
