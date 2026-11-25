@@ -101,6 +101,12 @@ class QualityError(StageError):
         super().__init__(message, hints)
 
 
+class OutOfMemoryError(StageError):
+    """An external GPU tool ran out of VRAM (exit 30)."""
+
+    exit_code: ClassVar[ExitCode] = ExitCode.OOM
+
+
 class Manifest(BaseModel):
     """Content of ``<scan>/<stage>/manifest.json``."""
 
@@ -120,6 +126,7 @@ class Manifest(BaseModel):
     error: str | None = None
     warnings: list[str] = []
     hints: list[str] = []
+    metrics: dict[str, Any] = {}  # measured results of the stage (numbers, no image content)
 
 
 @dataclass
@@ -132,12 +139,19 @@ class StageContext:
     inputs: list[Path]
     warnings: list[str] = field(default_factory=list)
     hints: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    peak_vram_mb: float | None = None  # only set by GPU stages without PyTorch
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
 
     def hint(self, message: str) -> None:
         self.hints.append(message)
+
+    def record_peak_vram(self, mib: float | None) -> None:
+        """Keep the highest peak of the external GPU processes of this stage."""
+        if mib is not None:
+            self.peak_vram_mb = max(mib, self.peak_vram_mb or 0.0)
 
 
 class Stage(ABC):
@@ -149,6 +163,9 @@ class Stage(ABC):
     name: ClassVar[str]
     version: ClassVar[str]
     uses_gpu: ClassVar[bool] = False
+    # False for GPU stages that run external tools (COLMAP): no allocator limit, and the stage
+    # reports its own peak via `StageContext.record_peak_vram`.
+    uses_torch: ClassVar[bool] = True
 
     @abstractmethod
     def inputs(self, scan_dir: Path) -> list[Path]:
@@ -218,7 +235,7 @@ def _redact(text: str, scan_dir: Path) -> str:
     return text
 
 
-def _load_manifest(path: Path) -> Manifest | None:
+def load_manifest(path: Path) -> Manifest | None:
     try:
         return Manifest.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError):
@@ -255,6 +272,7 @@ class _Run:
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
     hints: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def out_dir(self) -> Path:
@@ -282,6 +300,7 @@ class _Run:
             error=None if self.error is None else _redact(self.error, self.scan_dir),
             warnings=self.warnings,
             hints=self.hints,
+            metrics=self.metrics,
         )
 
     def finish(self, code: ExitCode) -> StageResult:
@@ -329,16 +348,16 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
         run.inputs = {run.relative(p): hash_path(p) for p in input_paths}
 
         manifest_path = run.out_dir / MANIFEST_NAME
-        if not force and _is_cache_hit(_load_manifest(manifest_path), run):
+        if not force and _is_cache_hit(load_manifest(manifest_path), run):
             log.info("stage_skipped", stage=stage.name)
-            cached = _load_manifest(manifest_path)
+            cached = load_manifest(manifest_path)
             assert cached is not None
             return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=cached)
 
         run.out_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.unlink(missing_ok=True)  # a crash must not leave a valid cache behind
         log.info("stage_started", stage=stage.name, force=force)
-        if stage.uses_gpu:
+        if stage.uses_gpu and stage.uses_torch:
             gpu.apply_vram_limit(settings)  # before the first allocation (KAN-20)
             gpu.reset_peak_memory()
             gpu_started = True
@@ -379,6 +398,8 @@ def _collect(run: _Run, ctx: StageContext | None, gpu_started: bool) -> None:
     if ctx is not None:
         run.warnings = ctx.warnings + run.warnings
         run.hints = ctx.hints + run.hints
+        run.metrics = ctx.metrics
+        run.peak = ctx.peak_vram_mb
     if gpu_started:
         try:
             run.peak = gpu.peak_reserved_mib()

@@ -25,6 +25,7 @@ def write_profile(directory: Path, name: str, body: str) -> Path:
 
 VALID_PROFILE = """\
 vram_limit_gb: 3.0
+gpu_device: 0
 gpu:
   allow_fp16: false
 ingest:
@@ -40,6 +41,18 @@ ingest:
   min_decoded_ratio: 0.9
 sfm:
   max_image_edge_px: 800
+  max_num_features: 2000
+  max_num_matches: 2000
+  camera_model: SIMPLE_RADIAL
+  exhaustive_max_keyframes: 100
+  sequential_overlap: 5
+  loop_vocab_words: 256
+  loop_vocab_iterations: 5
+  loop_vocab_max_descriptors: 100000
+  min_registration_ratio: 0.8
+  target_registration_ratio: 0.9
+  oom_retry_image_edge_px: 400
+  oom_retry_num_features: 1000
 splat:
   max_iterations: 1000
   max_gaussians: 10000

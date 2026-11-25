@@ -2,6 +2,7 @@
 # 6.5 GiB leaves room for CUDA context and a display on the same card.
 # Stage values are provisional and get calibrated in spike KAN-19.
 vram_limit_gb: 6.5
+gpu_device: 0 # nvidia-smi index, DRONESCAN_GPU_DEVICE overrides
 gpu:
   allow_fp16: true # used only on sm_70+; Pascal stays fp32
 ingest: # start values from spike-01 (section 7)
@@ -15,8 +16,20 @@ ingest: # start values from spike-01 (section 7)
   jpeg_qscale: 2
   min_keyframes: 3
   min_decoded_ratio: 0.9
-sfm:
+sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   max_image_edge_px: 2400
+  max_num_features: 8192
+  max_num_matches: 16384
+  camera_model: SIMPLE_RADIAL
+  exhaustive_max_keyframes: 250 # above: sequential matching with loop detection
+  sequential_overlap: 10
+  loop_vocab_words: 4096
+  loop_vocab_iterations: 25
+  loop_vocab_max_descriptors: 2000000
+  min_registration_ratio: 0.8 # below: exit 20
+  target_registration_ratio: 0.9 # Q-3; below: warning
+  oom_retry_image_edge_px: 1600
+  oom_retry_num_features: 4096
 splat:
   max_iterations: 30000
   max_gaussians: 2500000
