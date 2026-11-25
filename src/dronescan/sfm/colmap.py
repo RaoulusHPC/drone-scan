@@ -29,6 +29,12 @@ _DOCKER_FAILED = 125  # `docker run` itself failed, the command never started
 _KILLED = 137  # SIGKILL, usually the kernel's out-of-memory killer
 _GPU_OOM = re.compile(r"not enough gpu memory|out of memory", re.IGNORECASE)
 _HOST_OOM = "std::bad_alloc"
+# Runs in the container: stdin is a pipe from the runner. If the runner dies for any reason
+# (even SIGKILL), the pipe closes and COLMAP is killed. Otherwise it would keep the GPU busy
+# after the kernel has released the runner's GPU lock (KAN-80).
+WATCHDOG = (
+    'exec 3<&0; "$@" & pid=$!; (cat <&3 >/dev/null; kill -KILL "$pid") 2>/dev/null & wait "$pid"'
+)
 
 log = structlog.get_logger(__name__)
 
@@ -134,7 +140,7 @@ class Colmap:
             )
         container = f"dronescan-colmap-{uuid.uuid4().hex[:12]}"
         arguments = self._arguments(container, gpu)
-        arguments += ["colmap", command, "--log_target", "stderr"]
+        arguments += ["sh", "-c", WATCHDOG, "sh", "colmap", command, "--log_target", "stderr"]
         for name, value in options.items():
             arguments += [f"--{name}", str(value)]
 
@@ -144,7 +150,7 @@ class Colmap:
         sampler = _VramSampler(self._gpu_device)
         with log_file.open("w", encoding="utf-8") as output:
             proc = subprocess.Popen(
-                arguments, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT
+                arguments, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT
             )
             try:
                 if gpu:
@@ -158,13 +164,25 @@ class Colmap:
                 proc.kill()
                 proc.wait()
                 raise
+            finally:
+                if proc.stdin is not None:
+                    proc.stdin.close()
         result = StepResult(time.monotonic() - started, sampler.peak)
         self._check(command, proc.returncode, log_file.read_text("utf-8", errors="replace"), gpu)
         log.info("colmap_finished", command=command, seconds=round(result.seconds, 1))
         return result
 
     def _arguments(self, container: str, gpu: bool) -> list[str]:
-        arguments = ["docker", "run", "--rm", "--pull", "never", "--name", container]
+        arguments = [
+            "docker",
+            "run",
+            "--rm",
+            "--interactive",
+            "--pull",
+            "never",
+            "--name",
+            container,
+        ]
         arguments += ["--network", "none", "--user", f"{os.getuid()}:{os.getgid()}"]
         if gpu:
             arguments += ["--runtime", "nvidia", "--gpus", f"device={self._gpu_device}"]

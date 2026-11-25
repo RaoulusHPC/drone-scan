@@ -14,6 +14,8 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,7 +33,7 @@ from dronescan.capture.scan import FlightMeta, ScanMeta
 from dronescan.cli import app
 from dronescan.common.config import Settings, load_settings
 from dronescan.common.stage import ExitCode, Manifest, StageResult, run_stage
-from dronescan.sfm.colmap import COLMAP_IMAGE, Colmap, ColmapUnavailableError, Mount
+from dronescan.sfm.colmap import COLMAP_IMAGE, WATCHDOG, Colmap, ColmapUnavailableError, Mount
 from dronescan.sfm.model import list_models, read_report
 from dronescan.sfm.stage import SfmStage
 from tests.synthetic_room import View, aligned_position_errors, views, write_jpegs
@@ -138,8 +140,9 @@ if args[0] == "kill":
     sys.exit(0)
 
 position = args.index({image!r})
-command = args[position + 2]
-options = dict(zip(args[position + 3 :: 2], args[position + 4 :: 2]))
+position = args.index("colmap", position)
+command = args[position + 1]
+options = dict(zip(args[position + 2 :: 2], args[position + 3 :: 2]))
 mounts = {{}}
 for flag, value in zip(args, args[1:]):
     if flag == "--mount":
@@ -641,6 +644,43 @@ def test_interrupt_stops_the_container(
     assert killed[0][1].startswith("dronescan-colmap-")
 
 
+@pytest.mark.parametrize(("script", "code"), [("exit 0", 0), ("exit 3", 3)])
+def test_watchdog_passes_the_exit_code(script: str, code: int) -> None:
+    """Given the script that wraps COLMAP in the container,
+    When the command ends while the runner is alive (stdin open),
+    Then its exit code is returned.
+    """
+    command = ["sh", "-c", WATCHDOG, "sh", "sh", "-c", script]
+    with subprocess.Popen(command, stdin=subprocess.PIPE) as proc:
+        assert proc.wait(timeout=10) == code
+
+
+def test_watchdog_kills_the_command_when_the_runner_is_gone() -> None:
+    """Given a long-running command,
+    When stdin closes because the runner died,
+    Then the command is killed at once.
+    """
+    command = ["sh", "-c", WATCHDOG, "sh", "sleep", "60"]
+    with subprocess.Popen(command, stdin=subprocess.PIPE) as proc:
+        with pytest.raises(subprocess.TimeoutExpired):
+            proc.wait(timeout=0.5)
+        assert proc.stdin is not None
+        proc.stdin.close()
+        assert proc.wait(timeout=10) == 137
+
+
+def test_every_container_runs_under_the_watchdog(scan: Path, docker: FakeDocker) -> None:
+    """Given a run,
+    When containers are started,
+    Then each has an open stdin and the watchdog as its command.
+    """
+    docker.models(10)
+    sfm(scan)
+
+    for call in docker.calls():
+        assert "--interactive" in call and WATCHDOG in call
+
+
 def test_adapter_reports_unavailable_container(tmp_path: Path, docker: FakeDocker) -> None:
     """Given a missing image,
     When the adapter is used directly,
@@ -867,6 +907,14 @@ def room_scan(scan_dir: Path, poses: list[View], size: tuple[int, int] = SMALL) 
     return scan_dir
 
 
+def wait_for[T](check: Callable[[], T], timeout_s: float) -> T:
+    """Poll ``check`` until it is truthy or the time is up; returns the last value."""
+    deadline = time.monotonic() + timeout_s
+    while not (value := check()) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return value
+
+
 def position_errors(scan_dir: Path, poses: list[View]) -> NDArray[np.float64]:
     """Camera position errors (m) of the stored model against the true poses."""
     lines = (scan_dir / "sfm" / "colmap" / "sparse" / "0" / "images.txt").read_text().splitlines()
@@ -970,3 +1018,26 @@ def test_unrelated_images_exit_20(tmp_path: Path) -> None:
 
     assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT, result.manifest.error
     assert result.manifest.hints
+
+
+@pytest.mark.gpu
+@needs_colmap
+def test_killed_runner_does_not_leave_a_container(tmp_path: Path) -> None:
+    """Given a running COLMAP container,
+    When the runner is killed hard (SIGKILL, no chance to clean up),
+    Then the container ends by itself, because the GPU lock is already free again.
+    """
+    scan_dir = room_scan(tmp_path / "scan", views(30))
+    code = "from dronescan.cli import app; app()"
+
+    def containers() -> set[str]:
+        command = ["docker", "ps", "--filter", "name=dronescan-colmap-", "--format", "{{.Names}}"]
+        output = subprocess.run(command, capture_output=True, text=True, check=True).stdout
+        return set(output.split())
+
+    before = containers()
+    with subprocess.Popen([sys.executable, "-c", code, "sfm", "--scan", str(scan_dir)]) as runner_:
+        started = wait_for(lambda: containers() - before, timeout_s=60)
+        runner_.kill()
+    assert started
+    assert wait_for(lambda: not containers() & started, timeout_s=15)
