@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import os
 import re
 import shutil
 import tempfile
 import unicodedata
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from dronescan.capture.probe import ProbeError, VideoMeta, probe_video
 
 SCAN_FILE = "scan.yaml"
+LOCK_FILE = ".scan.lock"
 _HASH_CHUNK = 1024 * 1024
 _MAX_ID_TRIES = 1000
 
@@ -62,6 +65,17 @@ def _write_scan(scan_dir: Path, meta: ScanMeta) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+@contextlib.contextmanager
+def _scan_lock(scan_dir: Path) -> Iterator[None]:
+    """Serialise read-modify-write of scan.yaml between concurrent imports."""
+    with (scan_dir / LOCK_FILE).open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def create_scan(workspace: Path, name: str) -> ScanMeta:
@@ -118,7 +132,7 @@ def _sha256(path: Path) -> str:
 
 def add_flight(scan_dir: Path, video: Path) -> FlightMeta:
     """Validate ``video``, copy it into the scan and register it in ``scan.yaml``."""
-    meta = load_scan(scan_dir)
+    load_scan(scan_dir)  # fail early if scan.yaml is unreadable
     if not video.is_file():
         raise ScanError(f"Video '{video.name}' nicht gefunden. Abhilfe: Pfad prüfen.")
     try:
@@ -127,38 +141,40 @@ def add_flight(scan_dir: Path, video: Path) -> FlightMeta:
         raise ScanError(str(exc)) from exc
 
     scan_flights = scan_dir / "flights"
-    created_flights_dir = not scan_flights.exists()
-    flight_dir: Path | None = None
-    try:
-        # A parallel import may take the next id first; mkdir is the atomic claim.
-        number = len(meta.flights) + 1
-        while flight_dir is None:
-            flight_id = f"f{number:02d}"
-            try:
-                (scan_flights / flight_id).mkdir(parents=True)
-                flight_dir = scan_flights / flight_id
-            except FileExistsError:
-                number += 1
-        target = flight_dir / f"video{video.suffix.lower() or '.mp4'}"
-        shutil.copyfile(video, target)
-        flight = FlightMeta(
-            **probed.model_dump(),
-            id=flight_id,
-            source_name=video.name,
-            sha256=_sha256(target),
-            added=datetime.now(UTC),
-        )
-        meta.flights.append(flight)
-        _write_scan(scan_dir, meta)
-    except OSError as exc:
-        _cleanup(flight_dir, scan_flights, created_flights_dir)
-        raise ScanError(
-            f"'{video.name}' konnte nicht importiert werden ({exc.strerror or 'Dateifehler'}). "
-            "Abhilfe: freien Speicherplatz und Leserechte prüfen."
-        ) from exc
-    except BaseException:
-        _cleanup(flight_dir, scan_flights, created_flights_dir)
-        raise
+    with _scan_lock(scan_dir):
+        # Reload under the lock so flights added by parallel imports are kept.
+        meta = load_scan(scan_dir)
+        created_flights_dir = not scan_flights.exists()
+        flight_dir: Path | None = None
+        try:
+            number = len(meta.flights) + 1
+            while flight_dir is None:
+                flight_id = f"f{number:02d}"
+                try:
+                    (scan_flights / flight_id).mkdir(parents=True)
+                    flight_dir = scan_flights / flight_id
+                except FileExistsError:
+                    number += 1
+            target = flight_dir / f"video{video.suffix.lower() or '.mp4'}"
+            shutil.copyfile(video, target)
+            flight = FlightMeta(
+                **probed.model_dump(),
+                id=flight_id,
+                source_name=video.name,
+                sha256=_sha256(target),
+                added=datetime.now(UTC),
+            )
+            meta.flights.append(flight)
+            _write_scan(scan_dir, meta)
+        except OSError as exc:
+            _cleanup(flight_dir, scan_flights, created_flights_dir)
+            raise ScanError(
+                f"'{video.name}' konnte nicht importiert werden ({exc.strerror or 'Dateifehler'}). "
+                "Abhilfe: freien Speicherplatz und Leserechte prüfen."
+            ) from exc
+        except BaseException:
+            _cleanup(flight_dir, scan_flights, created_flights_dir)
+            raise
     return flight
 
 

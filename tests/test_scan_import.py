@@ -5,8 +5,10 @@ All videos are synthetic (ffmpeg ``testsrc``); private PO clips are never used.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -14,12 +16,21 @@ import yaml
 from typer.testing import CliRunner
 
 from dronescan.capture.probe import ProbeError, _rotation, probe_video
+from dronescan.capture.scan import add_flight
 from dronescan.cli import app
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe nicht installiert",
-)
+
+@pytest.fixture(scope="module")
+def require_ffmpeg() -> None:
+    """Skip locally without ffmpeg/ffprobe; fail in CI so the tests cannot silently vanish."""
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        return
+    if os.environ.get("CI") == "true":
+        pytest.fail("ffmpeg/ffprobe fehlen in der CI (ci.yml: Schritt 'Install ffmpeg').")
+    pytest.skip("ffmpeg/ffprobe nicht installiert")
+
+
+needs_ffmpeg = pytest.mark.usefixtures("require_ffmpeg")
 
 runner = CliRunner()
 
@@ -29,7 +40,7 @@ def _ffmpeg(*args: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def video(require_ffmpeg: None, tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("synthetic") / "clip.mp4"
     _ffmpeg(
         "-f",
@@ -44,7 +55,7 @@ def video(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def rotated_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def rotated_video(require_ffmpeg: None, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Portrait-encoded clip (180x320) with a 90 degree display rotation flag."""
     base = tmp_path_factory.mktemp("synthetic_rot")
     raw = base / "raw.mp4"
@@ -147,6 +158,7 @@ def test_rotation_flag_is_applied_to_display_size(rotated_video: Path) -> None:
     assert (meta.display_width, meta.display_height) == (320, 180)
 
 
+@needs_ffmpeg
 def test_rotation_180_keeps_size(tmp_path: Path) -> None:
     """Given a 180 degree clip, When probed, Then width and height are not swapped."""
     raw, out = tmp_path / "raw.mp4", tmp_path / "out.mp4"
@@ -187,6 +199,7 @@ def test_flight_add_stores_display_size_for_rotated_video(ws: Path, rotated_vide
     assert (flight["display_width"], flight["display_height"]) == (320, 180)
 
 
+@needs_ffmpeg
 def test_flight_add_rejects_non_video(ws: Path, tmp_path: Path) -> None:
     """Given a text file named .mp4, When imported, Then exit 10 with a clear message."""
     scan_id = _create(ws)
@@ -214,6 +227,7 @@ def test_flight_add_rejects_truncated_video(ws: Path, video: Path, tmp_path: Pat
     assert flights == []
 
 
+@needs_ffmpeg
 def test_flight_add_rejects_audio_only_file(ws: Path, tmp_path: Path) -> None:
     """Given a file without a video stream, When imported, Then exit 10."""
     scan_id = _create(ws)
@@ -241,6 +255,7 @@ def test_flight_add_missing_file_and_missing_scan(ws: Path, video: Path, tmp_pat
     assert "scan create" in missing_scan.output
 
 
+@needs_ffmpeg
 def test_probe_error_for_garbage(tmp_path: Path) -> None:
     """Given garbage bytes, When probed, Then ProbeError is raised."""
     bad = tmp_path / "x.mp4"
@@ -277,3 +292,32 @@ def test_flight_add_skips_id_taken_by_parallel_import(ws: Path, video: Path) -> 
     assert result.exit_code == 0, result.output
     assert (ws / scan_id / "flights" / "f02" / "video.mp4").exists()
     assert (ws / scan_id / "flights" / "f01").exists()
+
+
+def test_parallel_imports_keep_all_flights(ws: Path, video: Path) -> None:
+    """Given one scan, When four imports run at the same time,
+    Then scan.yaml lists all four flights with distinct ids.
+    """
+    scan_id = _create(ws)
+    scan_dir = ws / scan_id
+    barrier = threading.Barrier(4)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            barrier.wait()
+            add_flight(scan_dir, video)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    flights = yaml.safe_load((scan_dir / "scan.yaml").read_text(encoding="utf-8"))["flights"]
+    assert sorted(f["id"] for f in flights) == ["f01", "f02", "f03", "f04"]
+    for f in flights:
+        assert (scan_dir / "flights" / f["id"] / "video.mp4").exists()

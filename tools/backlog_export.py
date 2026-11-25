@@ -8,7 +8,6 @@ Outputs:
 Usage: python3 tools/backlog_export.py [--jira-map backlog/jira-map.json]
 The optional jira map (local id -> Jira key, e.g. {"US-001": "KAN-13"}) adds Jira keys to the markdown.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -62,9 +61,7 @@ def validate(d: dict) -> list[str]:
             if dep not in stories:
                 errors.append(f"{sid}: unknown dependency {dep}")
             elif MS_ORDER.index(stories[dep]["ms"]) > MS_ORDER.index(s["ms"]):
-                errors.append(
-                    f"{sid} ({s['ms']}) depends on later milestone {dep} ({stories[dep]['ms']})"
-                )
+                errors.append(f"{sid} ({s['ms']}) depends on later milestone {dep} ({stories[dep]['ms']})")
     # cycle check
     state: dict[str, int] = {}
 
@@ -113,26 +110,12 @@ def export_markdown(d: dict, jira: dict[str, str]) -> str:
         "|---|---|---|",
     ]
     lines += [f"| {p['id']} | {p['name']} | {p['desc']} |" for p in d["personas"]]
-    lines += [
-        "",
-        "## Übersicht nach Meilenstein",
-        "",
-        "| Meilenstein | Stories | SP | Must | Should | Could |",
-        "|---|---|---|---|---|---|",
-    ]
+    lines += ["", "## Übersicht nach Meilenstein", "", "| Meilenstein | Stories | SP | Must | Should | Could |", "|---|---|---|---|---|---|"]
     for ms in MS_ORDER:
         ss = [s for s in d["stories"] if s["ms"] == ms]
         cnt = lambda p: sum(1 for s in ss if s["prio"] == p)  # noqa: E731
-        lines.append(
-            f"| {MS_NAMES[ms]} | {len(ss)} | {sum(s['sp'] for s in ss)} | {cnt('Must')} | {cnt('Should')} | {cnt('Could')} |"
-        )
-    lines += [
-        "",
-        "## Übersicht nach Epic",
-        "",
-        "| Epic | Titel | Stories | SP |",
-        "|---|---|---|---|",
-    ]
+        lines.append(f"| {MS_NAMES[ms]} | {len(ss)} | {sum(s['sp'] for s in ss)} | {cnt('Must')} | {cnt('Should')} | {cnt('Could')} |")
+    lines += ["", "## Übersicht nach Epic", "", "| Epic | Titel | Stories | SP |", "|---|---|---|---|"]
     for e in d["epics"]:
         ss = by_epic[e["id"]]
         ek = f"{e['id']} / {jira[e['id']]}" if e["id"] in jira else e["id"]
@@ -170,51 +153,12 @@ def jira_description(d: dict, s: dict) -> str:
 def export_csv(d: dict, path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(
-            [
-                "Issue ID",
-                "Parent ID",
-                "Issue Type",
-                "Summary",
-                "Description",
-                "Priority",
-                "Story Points",
-                "Labels",
-                "Labels",
-                "Labels",
-                "Labels",
-            ]
-        )
+        w.writerow(["Issue ID", "Parent ID", "Issue Type", "Summary", "Description", "Priority", "Story Points", "Labels", "Labels", "Labels", "Labels"])
         for e in d["epics"]:
-            w.writerow(
-                [
-                    e["id"],
-                    "",
-                    "Epic",
-                    f"{e['id']} {e['title']}",
-                    f"Epic {e['id']} – Meilenstein {MS_NAMES[e['ms']]}",
-                    "High",
-                    "",
-                    e["ms"],
-                    "epic",
-                    "",
-                    "",
-                ]
-            )
+            w.writerow([e["id"], "", "Epic", f"{e['id']} {e['title']}", f"Epic {e['id']} – Meilenstein {MS_NAMES[e['ms']]}", "High", "", e["ms"], "epic", "", ""])
         for s in d["stories"]:
             labels = ([s["ms"]] + s["labels"] + ["", "", "", ""])[:4]
-            w.writerow(
-                [
-                    s["id"],
-                    s["epic"],
-                    s["type"],
-                    s["title"],
-                    jira_description(d, s),
-                    PRIO_JIRA[s["prio"]],
-                    s["sp"],
-                    *labels,
-                ]
-            )
+            w.writerow([s["id"], s["epic"], s["type"], s["title"], jira_description(d, s), PRIO_JIRA[s["prio"]], s["sp"], *labels])
 
 
 def main() -> int:
@@ -229,9 +173,7 @@ def main() -> int:
     jira = json.loads(args.jira_map.read_text()) if args.jira_map.exists() else {}
     (ROOT / "docs/user-stories.md").write_text(export_markdown(d, jira), encoding="utf-8")
     export_csv(d, ROOT / "backlog/jira-import.csv")
-    print(
-        f"ok: {len(d['epics'])} epics, {len(d['stories'])} stories, {sum(s['sp'] for s in d['stories'])} SP"
-    )
+    print(f"ok: {len(d['epics'])} epics, {len(d['stories'])} stories, {sum(s['sp'] for s in d['stories'])} SP")
     return 0
 
 

@@ -25,6 +25,8 @@ jobs:
         with:
           version: "0.13.9" # keep in sync with the local uv
           enable-cache: true
+      - name: Install ffmpeg (import tests need ffprobe)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install Python 3.12 and locked dependencies
         run: uv sync --locked
       - name: make check
