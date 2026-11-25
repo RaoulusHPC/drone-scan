@@ -127,7 +127,7 @@ flowchart TB
 | Baustein | Verantwortung | Wichtigste Technologie (Lizenz) |
 |---|---|---|
 | `capture` | Video/Telemetrie entgegennehmen, Metadaten (Kamera, Zeit, Flug-ID) erfassen; Adapter `VideoFile`, `Tello` (optional), `ArduPilot` (M5) | ffmpeg/ffprobe (LGPL), djitellopy (MIT), pymavlink (LGPL-3.0) / MAVSDK (BSD-3) |
-| `ingest` | Dekodieren, Schärfefilter (Laplace-Varianz), Duplikat- und Bewegungsfilter, Keyframe-Auswahl, Belichtungsprüfung, Qualitätsreport mit Handlungsempfehlungen | OpenCV (Apache-2.0), ffmpeg |
+| `ingest` | Dekodieren, Schärfefilter (Laplace-Varianz), Duplikat- und Bewegungsfilter, Keyframe-Auswahl, Belichtungsprüfung, Qualitätsreport mit Handlungsempfehlungen | ffmpeg, NumPy (BSD-3-Clause), PyArrow (Apache-2.0) |
 | `sfm` | Features, Matching (sequenziell + Loop), Mapping, AprilTag-Erkennung → metrischer Maßstab + Schwerkraftausrichtung, Zusammenführen mehrerer Flüge | COLMAP (BSD-3), pycolmap, AprilTag (BSD-2) |
 | `recon.splat` | Gaussian-Splatting-Training mit VRAM-Profil, Komprimierung (SPZ), Qualitätsmetriken (PSNR/SSIM auf Validierungsframes) | gsplat (Apache-2.0), Nerfstudio (Apache-2.0) optional |
 | `recon.mesh` *(optional)* | Mesh aus Tiefen/TSDF oder OpenMVS als **separates Werkzeug** | Open3D (MIT), OpenMVS (AGPL-3.0, nur als CLI-Prozess) |
@@ -166,6 +166,10 @@ Umsetzung (KAN-21): Basisklasse `dronescan.common.stage.Stage` und `run_stage()`
 
 Umsetzung Import (KAN-28): `drone-scan scan create <name>` legt `workspace/<id>/scan.yaml` an (`--workspace` bzw. `DRONESCAN_WORKSPACE_DIR`). `drone-scan flight add <scan> <video>` prüft per ffprobe, kopiert nach `flights/<fNN>/video.<ext>` und trägt je Flug in `scan.yaml` ein: Flug-ID, kodierte Größe, Rotation (0/90/180/270), **Anzeigegröße nach Rotation** (`display_width/height`, maßgeblich für Frame-Extraktion), fps, Dauer, Codec, sha256. Importfehler enden mit Exit 10.
 
+Umsetzung Frame-Extraktion (KAN-33): `drone-scan ingest --scan workspace/<id>` dekodiert je Flug mit ffmpeg (wendet die Rotation selbst an) `ingest.analysis_fps` kleine Graubilder pro Sekunde, misst die Schärfe (Varianz des Laplace-Operators) und wählt je Zeitfenster (`1/keyframes_per_s`) das schärfste Bild. Fenster unter `min_rel_sharpness` × Median des Videos entfallen, ebenso Bilder, die dem vorigen Keyframe gleichen (Kreuzkorrelation ≥ `max_similarity`). Nur die gewählten Bilder werden als JPEG geschrieben (lange Kante ≤ `max_image_edge_px`). Alle Werte stehen im Profil. Weniger als `min_keyframes` Bilder im ganzen Scan → Exit 20.
+
+`frames.parquet` hat eine Zeile je analysiertem Bild: `index`, `timestamp_s`, `sharpness`, `window`, `similarity` (zum vorigen Keyframe, sonst leer), `selected`, `reason` (`keyframe`, `not_sharpest`, `blurry`, `duplicate`), `file` (relativ zum Flugordner). `ingest/manifest.json` ist das Stufenmanifest (§5.2) über alle Flüge, `ingest/<flight_id>/manifest.json` die Zusammenfassung je Flug (Größe, Schärfeverteilung, Schwelle, Anzahl je Grund).
+
 ### 5.3 Datenmodell / Artefakt-Layout
 
 ```text
@@ -173,6 +177,7 @@ workspace/<scan_id>/                 # ein Gebäude/Objekt, eine Erfassungskampa
   scan.yaml                          # Name, Adresse (optional), Datum, Drohne, Kamera, Notizen
   flights/<flight_id>/video.mp4      # ein Akku = ein Flug
   flights/<flight_id>/telemetry.csv  # optional
+  ingest/manifest.json               # Stufenmanifest
   ingest/<flight_id>/frames/*.jpg, frames.parquet, manifest.json, quality.json
   sfm/colmap/{database.db, sparse/0}, sfm/aligned/{transform.json, scale_report.json}
   recon/splat/{scene.ply, scene.spz, metrics.json}, recon/mesh/scene.glb, recon/floorplan/plan.svg

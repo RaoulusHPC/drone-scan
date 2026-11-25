@@ -18,7 +18,8 @@ from dronescan import __version__
 from dronescan.capture.scan import ScanError, add_flight, create_scan, resolve_scan_dir
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 from dronescan.common.logging import configure_logging
-from dronescan.common.stage import ExitCode
+from dronescan.common.stage import ExitCode, register_stage
+from dronescan.ingest.stage import IngestStage
 
 app = typer.Typer(
     name="drone-scan",
@@ -115,3 +116,6 @@ def flight_add(
         f"Flug {flight.id} hinzugefügt: {flight.display_width}x{flight.display_height}, "
         f"{flight.fps:.2f} fps, {flight.duration_s:.1f} s, {flight.codec}"
     )
+
+
+register_stage(app, IngestStage)

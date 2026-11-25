@@ -35,7 +35,7 @@ class ScanError(Exception):
 
 
 class FlightMeta(VideoMeta):
-    id: str
+    id: str = Field(pattern=r"^f\d{2,}$")  # used as directory name by the stages
     source_name: str
     sha256: str
     added: datetime
@@ -121,6 +121,12 @@ def load_scan(scan_dir: Path) -> ScanMeta:
             f"{SCAN_FILE} in '{scan_dir.name}' ist nicht lesbar. Abhilfe: Datei prüfen oder Scan "
             "neu anlegen."
         ) from exc
+
+
+def flight_video(scan_dir: Path, flight: FlightMeta) -> Path:
+    """Path of the imported video (``flights/<id>/video.<ext>``); may not exist."""
+    flight_dir = scan_dir / "flights" / flight.id
+    return next(iter(sorted(flight_dir.glob("video.*"))), flight_dir / "video.mp4")
 
 
 def _sha256(path: Path) -> str:

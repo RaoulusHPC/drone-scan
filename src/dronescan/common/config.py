@@ -18,10 +18,10 @@ import os
 import re
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, model_validator
 from pydantic_settings import (
     BaseSettings,
     EnvSettingsSource,
@@ -48,6 +48,39 @@ class GpuSettings(_Section):
     allow_fp16: bool = Field(
         description="fp16/AMP allowed; only used on sm_70+ (Pascal stays fp32, ADR-0010)."
     )
+
+
+class IngestSettings(_Section):
+    analysis_fps: float = Field(
+        gt=0, le=60, description="Frames per second checked for sharpness and similarity."
+    )
+    analysis_edge_px: int = Field(ge=64, description="Longest edge of the analysis frames.")
+    keyframes_per_s: float = Field(gt=0, description="Target rate: one keyframe per time window.")
+    min_rel_sharpness: float = Field(
+        ge=0, le=1, description="Sharpness threshold as a fraction of the median of the video."
+    )
+    similarity_edge_px: int = Field(
+        ge=8, description="Longest edge of the thumbnails compared by the duplicate filter."
+    )
+    max_similarity: float = Field(
+        gt=0,
+        description="Correlation with the previous keyframe from which a frame is a duplicate "
+        "(above 1 disables the filter).",
+    )
+    max_image_edge_px: PositiveInt = Field(description="Longest edge of the extracted JPEGs.")
+    jpeg_qscale: int = Field(ge=1, le=31, description="ffmpeg JPEG quality (2 = very high).")
+    min_keyframes: PositiveInt = Field(
+        description="Fewer keyframes in the whole scan cannot be reconstructed (exit 20)."
+    )
+    min_decoded_ratio: float = Field(
+        ge=0, le=1, description="Warn if less of the video duration could be decoded."
+    )
+
+    @model_validator(mode="after")
+    def _enough_analysis_frames(self) -> Self:
+        if self.keyframes_per_s > self.analysis_fps:
+            raise ValueError("keyframes_per_s must not exceed analysis_fps")
+        return self
 
 
 class SfmSettings(_Section):
@@ -93,6 +126,7 @@ class Settings(BaseSettings):
         description="PyTorch allocator limit per process in GiB (CUDA context comes on top).",
     )
     gpu: GpuSettings
+    ingest: IngestSettings
     sfm: SfmSettings
     splat: SplatSettings
     search: SearchSettings

@@ -27,6 +27,17 @@ VALID_PROFILE = """\
 vram_limit_gb: 3.0
 gpu:
   allow_fp16: false
+ingest:
+  analysis_fps: 6
+  analysis_edge_px: 480
+  keyframes_per_s: 2
+  min_rel_sharpness: 0.4
+  similarity_edge_px: 64
+  max_similarity: 0.99
+  max_image_edge_px: 800
+  jpeg_qscale: 2
+  min_keyframes: 3
+  min_decoded_ratio: 0.9
 sfm:
   max_image_edge_px: 800
 splat:
@@ -201,3 +212,14 @@ def test_custom_profile_directory(tmp_path: Path) -> None:
     assert settings.profile == "tiny"
     assert settings.vram_limit_gb == pytest.approx(3.0)
     assert settings.search.detector_batch_size == 1
+
+
+def test_keyframe_rate_above_analysis_rate_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given more keyframes per second than analysed frames,
+    When the settings are loaded,
+    Then validation fails instead of silently delivering fewer keyframes.
+    """
+    monkeypatch.setenv("DRONESCAN_INGEST__KEYFRAMES_PER_S", "30")
+
+    with pytest.raises(ValidationError, match="analysis_fps"):
+        load_settings()
