@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Minimal gsplat trainer for spike KAN-19 (runs in the worker container).
 
 Trains 3D Gaussians from a COLMAP-undistorted text model and raw RGB frames, on the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Docker images for worker (CUDA) and COLMAP (KAN-18)."""
 
 from __future__ import annotations

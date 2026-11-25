@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Schema of ``models.lock`` (ADR-0007): one entry per model weight file.
 
 Used by the license gate (KAN-23) and later by ``drone-scan models pull`` (KAN-24).

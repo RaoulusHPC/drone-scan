@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """GPU helpers shared by all GPU stages: VRAM limit and precision choice.
 
 `apply_vram_limit` must be called once at the start of every GPU stage, before

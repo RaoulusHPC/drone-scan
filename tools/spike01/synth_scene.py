@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic scene for tests of the spike trainer (runs in the worker container).
 
 Renders a few hundred random coloured Gaussians from cameras on a circle with gsplat and

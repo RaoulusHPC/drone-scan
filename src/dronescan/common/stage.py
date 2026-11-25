@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Stage framework: every pipeline stage follows the same contract (architecture §5.2).
 
 ``drone-scan <stage> --scan <dir> [--profile] [--force]`` reads defined inputs,

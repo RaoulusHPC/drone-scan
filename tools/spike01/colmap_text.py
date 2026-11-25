@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure-Python reader for COLMAP text models (cameras.txt, images.txt, points3D.txt).
 
 Standard library only, so it runs on the host (tests) and inside the worker container.

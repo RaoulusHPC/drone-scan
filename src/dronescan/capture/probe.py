@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """ffprobe adapter: reads video metadata and applies the display rotation flag.
 
 Smartphone clips are often stored in portrait (e.g. 1080x1920) with a rotation flag

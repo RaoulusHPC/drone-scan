@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sharpness (variance of the Laplacian) per frame from raw 8-bit grey frames (numpy).
 
 Usage (inside the worker container): python -m tools.spike01.sharpness RAW WIDTH HEIGHT

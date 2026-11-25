@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Scan directory and flight import (architecture §5.3).
 
 ``workspace/<scan_id>/scan.yaml`` lists the flights; each flight video is copied to

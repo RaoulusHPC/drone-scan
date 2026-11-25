@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Large and private artefacts stay out of Git (KAN-16, AC 4)."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Run one reference room through ingest, SfM and gsplat training on the GTX 1060 (host).
 
 Spike KAN-19. Orchestrates ffmpeg (host), the `colmap` and `worker` containers, one stage at a

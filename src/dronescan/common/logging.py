@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """structlog setup: structured logs on stderr, so stdout stays free for CLI output.
 
 Never log image contents or paths that may contain personal names (CLAUDE.md).

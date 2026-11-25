@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """CI pipeline and SITL test gating (KAN-17)."""
 
 from __future__ import annotations

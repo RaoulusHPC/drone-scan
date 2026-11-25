@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Stage framework: manifest, caching and exit codes (KAN-21)."""
 
 from __future__ import annotations
