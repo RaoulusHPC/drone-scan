@@ -1,7 +1,11 @@
 # drone-scan containers (KAN-18). GPU jobs never run in parallel (CLAUDE.md rule 2).
 # Start single jobs with `docker compose run --rm <service> ...`, NOT `docker compose up`:
-# worker and colmap reserve the same GPU and nothing here serializes them. Serializing the
-# pipeline stages (GPU lock) belongs to the stage runner. Both services are build-only for now.
+# worker and colmap reserve the same GPU. The stage runner serializes GPU stages with an flock on
+# one gpu.lock per machine (KAN-80): the host directory below (default
+# ~/.local/state/drone-scan, same as the host CLI; override with DRONESCAN_GPU_LOCK_DIR) is
+# mounted into every GPU service and DRONESCAN_GPU__LOCK_FILE points at it. `make setup` creates
+# the directory (docker would create a missing bind source as root). Both services are
+# build-only for now.
 # Default GPU: device 0 = GTX 1060 on the dev machine. The RTX 2070 SUPER (device 1) is
 # reserved for another project: DRONESCAN_GPU_DEVICE=1 may only be set with the PO's prior
 # consent for that run, and only if the card is free (`nvidia-smi`). Nothing enforces this here.
@@ -10,6 +14,8 @@ name: drone-scan
 # `runtime: nvidia` (registered by `nvidia-ctk runtime configure`) is needed on some hosts, e.g.
 # Ubuntu 26.04 with Docker 29 and the systemd cgroup driver: with the default runc runtime the
 # container sees the GPU device files but NVML fails ("Failed to initialize NVML: Unknown Error").
+x-gpu-lock-dir: &gpu-lock-dir ${DRONESCAN_GPU_LOCK_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/drone-scan}:/run/drone-scan-gpu
+
 x-gpu: &gpu
   runtime: nvidia
   deploy:
@@ -29,11 +35,13 @@ services:
     image: drone-scan/worker:0.1.0
     environment:
       CUDA_DEVICE_ORDER: PCI_BUS_ID
+      DRONESCAN_GPU__LOCK_FILE: /run/drone-scan-gpu/gpu.lock
       DRONESCAN_PROFILE: ${DRONESCAN_PROFILE:-low_vram_6gb}
       DRONESCAN_VRAM_LIMIT_GB: ${DRONESCAN_VRAM_LIMIT_GB:-5.0}
     volumes:
       - ./workspace:/workspace
       - ./data:/data:ro
+      - *gpu-lock-dir
 
   colmap:
     <<: *gpu
@@ -43,5 +51,7 @@ services:
     image: drone-scan/colmap:4.2.1
     environment:
       CUDA_DEVICE_ORDER: PCI_BUS_ID
+      DRONESCAN_GPU__LOCK_FILE: /run/drone-scan-gpu/gpu.lock
     volumes:
       - ./workspace:/workspace
+      - *gpu-lock-dir

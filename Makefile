@@ -22,6 +22,7 @@ setup: ## Create Python 3.12 env (uv.lock), install pre-commit hooks
 	fi
 	@if [ -f viewer/package.json ]; then cd viewer && pnpm install; else echo "viewer/ fehlt noch – pnpm install übersprungen"; fi
 	@mkdir -p workspace data
+	@mkdir -p "$${DRONESCAN_GPU_LOCK_DIR:-$${XDG_STATE_HOME:-$$HOME/.local/state}/drone-scan}"  # GPU lock dir, mounted into the containers (KAN-80)
 	@if [ -f docker-compose.yml ] || [ -f compose.yaml ]; then docker compose build; else echo "Docker-Compose-Datei fehlt noch (KAN-18) – docker build übersprungen"; fi
 
 lint: ## ruff lint + format check
@@ -55,6 +56,7 @@ test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)
 docker-check: ## GPU visible in the worker container? (expects e.g. (6, 1) on the GTX 1060)
 	@# create the bind-mount directories as the current user (Docker would create them as root)
 	@mkdir -p workspace data
+	@mkdir -p "$${DRONESCAN_GPU_LOCK_DIR:-$${XDG_STATE_HOME:-$$HOME/.local/state}/drone-scan}"  # GPU lock dir, mounted into the containers (KAN-80)
 	docker compose run --rm worker python -W always -c \
 		"import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability())"
 

@@ -87,7 +87,7 @@ class SfmStage(Stage):
     name: ClassVar[str] = "sfm"
     version: ClassVar[str] = "1"
     uses_gpu: ClassVar[bool] = True
-    uses_torch: ClassVar[bool] = False
+    applies_vram_limit: ClassVar[bool] = False  # COLMAP runs in its own container
 
     def inputs(self, scan_dir: Path) -> list[Path]:
         scan_file = scan_dir / SCAN_FILE

@@ -5,6 +5,8 @@ vram_limit_gb: 6.5
 gpu_device: 0 # nvidia-smi index, DRONESCAN_GPU_DEVICE overrides
 gpu:
   allow_fp16: true # used only on sm_70+; Pascal stays fp32
+  lock_timeout_s: 1800 # wait for a running GPU job this long (KAN-80), then exit 1
+  lock_poll_s: 1
 ingest: # start values from spike-01 (section 7)
   analysis_fps: 6
   analysis_edge_px: 480

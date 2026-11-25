@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -38,3 +39,9 @@ def isolate_dronescan_env(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     for name in list(os.environ):
         if name.startswith("DRONESCAN_"):
             monkeypatch.delenv(name)
+
+
+@pytest.fixture(autouse=True)
+def isolate_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point XDG_STATE_HOME at a temp dir: tests must never touch the real GPU lock (KAN-80)."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
