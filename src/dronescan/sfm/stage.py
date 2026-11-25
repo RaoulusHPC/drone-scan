@@ -36,6 +36,7 @@ from dronescan.sfm.colmap import (
     Colmap,
     ColmapError,
     ColmapOutOfMemoryError,
+    ColmapTimeoutError,
     ColmapUnavailableError,
     Mount,
     StepResult,
@@ -62,6 +63,19 @@ QUALITY_HINTS = [
     "Türdurchgänge doppelt aufnehmen (hin und zurück).",
     "Bei weißen Wänden, Glas oder Spiegeln 2 bis 4 AprilTags aufhängen.",
 ]
+LOOP_WARNING = (
+    "Die Erkennung bereits besuchter Orte (Loop-Detection) war nicht möglich. Das Modell kann "
+    "sich über lange Wege verziehen oder in Teile zerfallen."
+)
+LOOP_TIMEOUT_HINT = (
+    "Die Loop-Detection brauchte zu lange, meist wegen zu weniger Bildmerkmale: mit mehr Licht "
+    "und Struktur neu aufnehmen. Auf langsamen Rechnern DRONESCAN_SFM__LOOP_VOCAB_TIMEOUT_S "
+    "erhöhen und mit --force wiederholen."
+)
+LOOP_FAILED_HINT = (
+    "Loop-Detection: Logdatei *_vocab_tree_builder.log in sfm/colmap/logs/ und freien "
+    "Speicherplatz prüfen, dann mit --force wiederholen."
+)
 SPLIT_HINT = (
     "Die Aufnahme zerfällt in {count} nicht verbundene Teile: an den Übergängen erneut langsam "
     "und mit viel Überlappung aufnehmen."
@@ -120,6 +134,12 @@ class SfmStage(Stage):
     def run(self, ctx: StageContext) -> None:
         work = ctx.out_dir / COLMAP_DIR
         images = _keyframes(ctx.inputs)
+        ctx.metrics["colmap_image_id"] = image_id()
+        if ctx.metrics["colmap_image_id"] == "missing":  # before old results are removed
+            raise StageError(
+                f"Das Docker-Image '{COLMAP_IMAGE}' fehlt oder Docker ist nicht erreichbar.",
+                UNAVAILABLE_HINTS,
+            )
         try:
             if work.exists():
                 shutil.rmtree(work)
@@ -127,7 +147,6 @@ class SfmStage(Stage):
             (work / _IMAGE_LIST).write_text("\n".join(images) + "\n", encoding="utf-8")
         except OSError as exc:
             raise StageError("Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]) from exc
-        ctx.metrics["colmap_image_id"] = image_id()
         colmap = Colmap(
             mounts=[
                 Mount(ctx.scan_dir / IngestStage.name, "/ingest", read_only=True),
@@ -251,15 +270,20 @@ class _Reconstruction:
             self._record("vocab_tree", result)
         except ColmapUnavailableError:
             raise
-        except ColmapError:
-            # Too few features (texture-poor scan); COLMAP 4.2.1 may even hang then. Whether the
-            # model is good enough is decided by the registration thresholds.
+        except ColmapError as exc:
+            # Without features COLMAP 4.2.1 hangs. The scan stays usable, but drift is not
+            # corrected and the registration thresholds cannot detect it: always warn.
             self._ctx.metrics["matcher"] = "sequential"
-            self._ctx.warn(
-                "Die Erkennung bereits besuchter Orte (Loop-Detection) war nicht möglich, "
-                "vermutlich wegen zu weniger Bildmerkmale. Das Modell kann auseinanderfallen."
-            )
+            if LOOP_WARNING not in self._ctx.warnings:
+                self._ctx.warn(LOOP_WARNING)
+                timeout = isinstance(exc, ColmapTimeoutError)
+                self._ctx.hint(LOOP_TIMEOUT_HINT if timeout else LOOP_FAILED_HINT)
             return False
+        self._ctx.metrics["matcher"] = "sequential+loop"
+        if LOOP_WARNING in self._ctx.warnings:  # second attempt after an OOM was successful
+            self._ctx.warnings.remove(LOOP_WARNING)
+            loop_hints = (LOOP_TIMEOUT_HINT, LOOP_FAILED_HINT)
+            self._ctx.hints[:] = [hint for hint in self._ctx.hints if hint not in loop_hints]
         return True
 
     def _map(self) -> None:

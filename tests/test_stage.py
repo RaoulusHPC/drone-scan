@@ -576,6 +576,8 @@ def test_cli_prints_german_status_and_hints(scan: Path) -> None:
 
     assert "echo: fertig." in first.output
     assert "Hinweis: Licht einschalten." in first.output
+    assert "Warnung: Belichtung schwankt." in first.output
+    assert "Warnung: Belichtung schwankt." in second.output
     assert "übersprungen" in second.output
     assert failed.exit_code == 20
     assert "Hinweis: Langsamer bewegen" in failed.output

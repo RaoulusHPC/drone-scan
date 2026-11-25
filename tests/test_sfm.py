@@ -436,7 +436,7 @@ def test_unchanged_scan_is_skipped_and_force_reruns(scan: Path, docker: FakeDock
 def test_stopped_docker_keeps_a_valid_result(scan: Path, docker: FakeDocker) -> None:
     """Given a valid result,
     When the stage runs again while docker or the image is not available,
-    Then it is skipped and the result stays.
+    Then it is skipped, and even with --force the old files are not removed.
     """
     docker.models(10)
     sfm(scan)
@@ -444,6 +444,7 @@ def test_stopped_docker_keeps_a_valid_result(scan: Path, docker: FakeDocker) -> 
     docker.save()
 
     assert sfm(scan).skipped
+    assert sfm(scan, force=True).exit_code is ExitCode.ERROR
     assert (scan / "sfm" / "colmap" / "sparse" / "0" / "images.txt").is_file()
 
 
@@ -461,6 +462,27 @@ def test_failed_vocab_tree_falls_back_with_a_warning(scan: Path, docker: FakeDoc
     assert "--SequentialMatching.loop_detection" not in docker.options("sequential_matcher")
     assert result.manifest.metrics["matcher"] == "sequential"
     assert any("Loop-Detection" in warning for warning in result.manifest.warnings)
+    assert any("vocab_tree_builder.log" in hint for hint in result.manifest.hints)
+
+
+@pytest.mark.parametrize(("failures", "matcher"), [(1, "sequential+loop"), (2, "sequential")])
+def test_loop_warning_matches_the_final_attempt(
+    scan: Path, docker: FakeDocker, failures: int, matcher: str
+) -> None:
+    """Given a failed tree and then a matcher without enough VRAM,
+    When the second attempt builds the tree, or fails again,
+    Then matcher and warning describe the final attempt and the warning appears at most once.
+    """
+    docker.models(10)
+    docker.fail("vocab_tree_builder", "failed", times=failures)
+    docker.fail("sequential_matcher", "out of memory", code=0)
+
+    manifest = sfm(scan, with_sfm(exhaustive_max_keyframes=5)).manifest
+
+    assert manifest.metrics["matcher"] == matcher
+    warnings = [warning for warning in manifest.warnings if "Loop-Detection" in warning]
+    hints = [hint for hint in manifest.hints if "Loop-Detection" in hint]
+    assert len(warnings) == len(hints) == failures - 1
 
 
 def test_hanging_vocab_tree_is_stopped(scan: Path, docker: FakeDocker) -> None:
@@ -473,10 +495,11 @@ def test_hanging_vocab_tree_is_stopped(scan: Path, docker: FakeDocker) -> None:
     docker.config["failures"][0]["hang_s"] = 30
     docker.save()
 
-    result = sfm(scan, with_sfm(exhaustive_max_keyframes=5, loop_vocab_timeout_s=2))
+    result = sfm(scan, with_sfm(exhaustive_max_keyframes=5, loop_vocab_timeout_s=5))
 
     assert result.exit_code is ExitCode.OK
     assert result.manifest.metrics["matcher"] == "sequential"
+    assert any("LOOP_VOCAB_TIMEOUT_S" in hint for hint in result.manifest.hints)
     (builder,) = [call for call in docker.calls() if "vocab_tree_builder" in call]
     assert docker.calls("kill") == [["kill", builder[builder.index("--name") + 1]]]
 
@@ -505,7 +528,7 @@ def test_unwritable_output_exits_1_with_a_remedy(
     """
     (scan / "sfm" / "colmap").mkdir(parents=True)
 
-    def denied(path: Path) -> None:
+    def denied(*_: Any, **__: Any) -> None:
         raise PermissionError(13, "denied")
 
     monkeypatch.setattr("dronescan.sfm.stage.shutil.rmtree", denied)
@@ -836,6 +859,7 @@ def test_manifest_contains_ratio_error_and_peak_vram(scan: Path, docker: FakeDoc
     assert metrics["points"] == 2
     assert metrics["model_sizes"] == [10]
     assert metrics["matcher"] == "exhaustive"
+    assert metrics["colmap_image_id"] == "sha256:1"
     assert set(metrics["seconds"]) == {"features", "matching", "mapper"}
     assert manifest.peak_vram_mb == 1234
     assert manifest.warnings == [] and manifest.hints == []

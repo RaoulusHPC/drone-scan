@@ -55,6 +55,10 @@ class ColmapUnavailableError(ColmapError):
     """Docker or the COLMAP image is missing, or the container could not be started."""
 
 
+class ColmapTimeoutError(ColmapError):
+    """The command did not finish in time and was stopped."""
+
+
 class ColmapOutOfMemoryError(ColmapError):
     """The GPU has not enough free memory."""
 
@@ -156,7 +160,7 @@ class Colmap:
         gpu: bool = False,
         timeout_s: float | None = None,
     ) -> StepResult:
-        """Run one command; after ``timeout_s`` it is stopped and ColmapError is raised."""
+        """Run one command; after ``timeout_s`` it is stopped and ColmapTimeoutError is raised."""
         if shutil.which("docker") is None:
             raise ColmapUnavailableError("Docker ist nicht installiert.")
         if image_id() == "missing":
@@ -197,7 +201,7 @@ class Colmap:
                 proc.wait()
                 if isinstance(exc, subprocess.TimeoutExpired):
                     log.error("colmap_timeout", command=command, timeout_s=timeout_s)
-                    raise ColmapError(f"COLMAP antwortet nicht ({command}).") from exc
+                    raise ColmapTimeoutError(f"COLMAP antwortet nicht ({command}).") from exc
                 raise
             finally:
                 if proc.stdin is not None:
