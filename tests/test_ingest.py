@@ -26,8 +26,23 @@ from dronescan.cli import app
 from dronescan.common.config import Settings, load_settings
 from dronescan.common.stage import ExitCode, Manifest, StageResult, run_stage
 from dronescan.ingest.ffmpeg import FfmpegError, decode_gray, extract_jpegs, fit_size
+from dronescan.ingest.hints import (
+    HINT_KEEP_MOVING,
+    HINT_LIGHTS_ON,
+    HINT_MOVE_SLOWLY,
+    HINT_RECORD_LONGER,
+)
+from dronescan.ingest.quality import (
+    QUALITY_FILE,
+    Criterion,
+    FlightQuality,
+    TrafficLight,
+    aggregate_scan_quality,
+    assess_flight,
+    worst,
+)
 from dronescan.ingest.selection import Reason, Sample, Selection, select_keyframes
-from dronescan.ingest.sharpness import laplacian_variance, similarity, thumbnail
+from dronescan.ingest.sharpness import brightness, laplacian_variance, similarity, thumbnail
 from dronescan.ingest.stage import IngestStage
 
 Frame = NDArray[np.uint8]
@@ -545,6 +560,209 @@ def test_flight_manifest_summarises_the_flight(tmp_path: Path, moving_video: Pat
     assert summary["counts"]["keyframe"] == len(images(scan_dir))
     assert summary["sharpness_threshold"] == pytest.approx(0.4 * summary["sharpness_median"])
     assert summary["decoded_s"] == pytest.approx(3.0, abs=0.01)
+
+
+# ---------- AC4: quality assessment (KAN-34, US-019) ----------
+
+
+def test_brightness_of_known_image() -> None:
+    """Given a frame with a known grey level, When measured, Then the mean matches."""
+    frame = np.full((4, 4), 60, dtype=np.uint8)
+    frame[0, 0] = 220
+
+    assert brightness(frame) == pytest.approx((15 * 60 + 220) / 16)
+
+
+def test_worst_light_wins() -> None:
+    """Given a mix of ampel lights, When combined, Then the least favourable one wins."""
+    assert worst([TrafficLight.GREEN, TrafficLight.YELLOW]) is TrafficLight.YELLOW
+    assert worst([TrafficLight.YELLOW, TrafficLight.RED, TrafficLight.GREEN]) is TrafficLight.RED
+    assert worst([]) is TrafficLight.GREEN
+
+
+def one_window_selection(score: float = 20.0) -> Selection:
+    """A single-window, single-keyframe selection (isolates one criterion in a test)."""
+    samples = samples_of([score], fps=SETTINGS_FPS)
+    return select_keyframes(
+        samples, keyframes_per_s=SETTINGS_FPS, min_rel_sharpness=0.4, max_similarity=0.99
+    )
+
+
+def test_blurry_windows_turn_the_sharpness_criterion_red() -> None:
+    """Given a video where half its windows are too blurry for its own median sharpness,
+    When assessed,
+    Then the sharpness criterion (and the flight overall) is red, with a hint.
+    """
+    samples = samples_of([20.0, 4.0] * 5, fps=SETTINGS_FPS)
+    selection = select_keyframes(
+        samples, keyframes_per_s=SETTINGS_FPS, min_rel_sharpness=0.4, max_similarity=0.99
+    )
+    cfg = load_settings().ingest
+
+    quality = assess_flight("f01", selection, brightness=[128.0] * 10, cfg=cfg)
+
+    assert quality.sharpness.light is TrafficLight.RED
+    assert quality.sharpness.value == pytest.approx(0.5)
+    assert quality.sharpness.hints
+    assert quality.overall is TrafficLight.RED
+
+
+def test_duplicate_windows_turn_the_motion_criterion_red() -> None:
+    """Given a camera that stands still most of the time (one view repeated for several
+    windows, briefly interrupted by one move to a second view),
+    When assessed,
+    Then the motion criterion (and the flight overall) is red, with a hint.
+    """
+    rng = np.random.default_rng(2)
+    view_a, view_b = (rng.random((8, 8)).astype(np.float32) * 255 for _ in range(2))
+    thumbs = [view_a] * 8 + [view_b] * 2
+    samples = [Sample(i / SETTINGS_FPS, 20.0, t) for i, t in enumerate(thumbs)]
+    selection = select_keyframes(
+        samples, keyframes_per_s=SETTINGS_FPS, min_rel_sharpness=0.4, max_similarity=0.99
+    )
+    cfg = load_settings().ingest
+
+    quality = assess_flight("f01", selection, brightness=[128.0] * 10, cfg=cfg)
+
+    assert quality.motion.light is TrafficLight.RED
+    assert quality.motion.value == pytest.approx(0.8)
+    assert quality.motion.hints
+    assert quality.overall is TrafficLight.RED
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [
+        (10.0, TrafficLight.RED),
+        (50.0, TrafficLight.YELLOW),
+        (128.0, TrafficLight.GREEN),
+        (210.0, TrafficLight.YELLOW),
+        (245.0, TrafficLight.RED),
+    ],
+)
+def test_exposure_criterion_reacts_to_brightness(level: float, expected: TrafficLight) -> None:
+    """Given the measured brightness of a flight,
+    When assessed,
+    Then under- and overexposure are red, borderline values yellow, normal exposure green.
+    """
+    cfg = load_settings().ingest
+
+    quality = assess_flight("f01", one_window_selection(), brightness=[level], cfg=cfg)
+
+    assert quality.exposure.light is expected
+
+
+def test_quality_is_green_when_nothing_is_wrong() -> None:
+    """Given steady, sharp, well-lit footage with full coverage,
+    When assessed,
+    Then every criterion is green, overall is green and there are no hints.
+    """
+    cfg = load_settings().ingest
+
+    quality = assess_flight("f01", one_window_selection(), brightness=[128.0], cfg=cfg)
+
+    assert quality.overall is TrafficLight.GREEN
+    assert quality.hints == []
+
+
+def test_aggregate_scan_quality_combines_flights_and_dedupes_hints() -> None:
+    """Given two flights whose hints overlap,
+    When aggregated,
+    Then the scan's overall light is the worst of both and each hint appears once, in the
+    order it was first seen.
+    """
+    green = FlightQuality(
+        flight_id="f01",
+        overall=TrafficLight.GREEN,
+        sharpness=Criterion(light=TrafficLight.GREEN, value=0.0),
+        exposure=Criterion(light=TrafficLight.GREEN, value=128.0),
+        motion=Criterion(light=TrafficLight.GREEN, value=0.0),
+        coverage=Criterion(light=TrafficLight.GREEN, value=1.0),
+    )
+    red = FlightQuality(
+        flight_id="f02",
+        overall=TrafficLight.RED,
+        sharpness=Criterion(
+            light=TrafficLight.RED, value=0.6, hints=[HINT_MOVE_SLOWLY, HINT_LIGHTS_ON]
+        ),
+        exposure=Criterion(light=TrafficLight.GREEN, value=128.0),
+        motion=Criterion(light=TrafficLight.RED, value=0.7, hints=[HINT_KEEP_MOVING]),
+        coverage=Criterion(
+            light=TrafficLight.RED, value=0.3, hints=[HINT_RECORD_LONGER, HINT_MOVE_SLOWLY]
+        ),
+    )
+
+    scan = aggregate_scan_quality([green, red])
+
+    assert scan.overall is TrafficLight.RED
+    assert scan.flights == {"f01": TrafficLight.GREEN, "f02": TrafficLight.RED}
+    assert scan.hints == [HINT_MOVE_SLOWLY, HINT_LIGHTS_ON, HINT_KEEP_MOVING, HINT_RECORD_LONGER]
+
+
+@needs_ffmpeg
+def test_quality_json_is_written_and_green_for_good_footage(
+    tmp_path: Path, moving_video: Path
+) -> None:
+    """Given a well-lit, steadily moving recording,
+    When ingested,
+    Then quality.json exists per flight, every criterion is green, and the scan summary in
+    the stage manifest matches (Zusammenfassung je Scan, PM-Entscheidung 2026-11-25).
+    """
+    scan_dir = make_scan(tmp_path, moving_video)
+
+    result = ingest(scan_dir)
+
+    assert result.exit_code is ExitCode.OK
+    quality = json.loads((scan_dir / "ingest" / "f01" / QUALITY_FILE).read_text())
+    assert quality["overall"] == "grün"
+    assert {quality[c]["light"] for c in ("sharpness", "exposure", "motion", "coverage")} == {
+        "grün"
+    }
+    assert result.manifest.metrics["quality"] == {
+        "overall": "grün",
+        "flights": {"f01": "grün"},
+        "hints": [],
+    }
+
+
+@needs_ffmpeg
+def test_yellow_quality_warns_without_failing(tmp_path: Path, moving_video: Path) -> None:
+    """Given exposure thresholds tightened so an otherwise-good recording counts as slightly
+    too bright,
+    When ingested,
+    Then it still succeeds (exit 0) but warns, naming the ampel colour, and still reports a
+    hint (recommendations are not only given on failure).
+    """
+    scan_dir = make_scan(tmp_path, moving_video)
+
+    result = ingest(scan_dir, with_ingest(exposure_bright_warn=100.0))
+
+    assert result.exit_code is ExitCode.OK
+    assert any("gelb" in warning for warning in result.manifest.warnings)
+    assert result.manifest.hints
+
+
+@needs_ffmpeg
+def test_insufficient_motion_quality_exits_20_with_hints(tmp_path: Path) -> None:
+    """Given enough keyframes overall, but a camera that mostly stands still between four
+    brief moves to a new view,
+    When ingested,
+    Then exit 20 is caused by the quality ampel (not too few keyframes) with concrete hints.
+    """
+    frames: list[Frame] = []
+    for view in panning(4, step=40):
+        frames += [view] * (3 * FPS // 2)  # 1.5 s (3 windows) standing on the same view
+    video = write_video(tmp_path / "mostly_still.mp4", frames)
+    scan_dir = make_scan(tmp_path, video)
+
+    result = ingest(scan_dir)
+
+    assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT
+    assert "Rekonstruktion" in (result.manifest.error or "")
+    assert set(result.manifest.hints) == {HINT_KEEP_MOVING, HINT_RECORD_LONGER}
+    quality = json.loads((scan_dir / "ingest" / "f01" / QUALITY_FILE).read_text())
+    assert quality["motion"]["light"] == "rot"
+    assert quality["coverage"]["light"] == "rot"
 
 
 # ---------- stage contract ----------

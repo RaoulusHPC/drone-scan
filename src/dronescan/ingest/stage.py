@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Stage ``ingest``: sharp, non-redundant keyframes from the flight videos (KAN-33).
+"""Stage ``ingest``: sharp, non-redundant keyframes from the flight videos (KAN-33, KAN-34).
 
 Per flight: ``ingest/<flight_id>/frames/*.jpg``, ``frames.parquet`` (one row per analysed
-frame) and ``manifest.json`` (summary). ``ingest/manifest.json`` is the stage manifest.
+frame), ``manifest.json`` (summary) and ``quality.json`` (sharpness/exposure/motion/coverage
+ampel, US-019). ``ingest/manifest.json`` is the stage manifest; its ``metrics.quality`` is the
+per-scan summary (overall ampel, every flight's ampel, deduplicated hints).
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import re
 import shutil
 import statistics
 from collections import Counter
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -38,6 +41,14 @@ from dronescan.ingest.ffmpeg import (
     ffmpeg_version,
     fit_size,
 )
+from dronescan.ingest.hints import HINT_LIGHTS_ON, HINT_MOVE_SLOWLY, HINT_RECORD_LONGER
+from dronescan.ingest.quality import (
+    QUALITY_FILE,
+    FlightQuality,
+    TrafficLight,
+    aggregate_scan_quality,
+    assess_flight,
+)
 
 if TYPE_CHECKING:
     from dronescan.ingest.selection import Selection
@@ -53,11 +64,13 @@ BROKEN_VIDEO_HINT = (
     "(MP4/MOV mit H.264/H.265)."
 )
 WRITE_HINT = "Abhilfe: freien Speicherplatz und Schreibrechte im Workspace prüfen."
-TOO_FEW_HINTS = [
-    "Kamera während der Aufnahme langsam und stetig durch den Raum bewegen (≤ 0,5 m/s).",
-    "Länger aufnehmen: mindestens 30 Sekunden pro Raum.",
-    "Licht einschalten, damit die Bilder nicht verwackeln.",
-]
+TOO_FEW_HINTS = [HINT_MOVE_SLOWLY, HINT_RECORD_LONGER, HINT_LIGHTS_ON]
+_CRITERION_LABELS = (
+    ("Schärfe", "sharpness"),
+    ("Belichtung", "exposure"),
+    ("Bewegung", "motion"),
+    ("Abdeckung", "coverage"),
+)
 
 log = structlog.get_logger(__name__)
 
@@ -112,21 +125,40 @@ class IngestStage(Stage):
             if old.is_dir() and _FLIGHT_DIR.match(old.name):
                 shutil.rmtree(old)
         total = 0
+        qualities: list[FlightQuality] = []
         for flight in flights:
-            summary = self._process(ctx, flight)
+            summary, quality = self._process(ctx, flight)
             total += summary.keyframes
+            qualities.append(quality)
             log.info("flight_ingested", flight=flight.id, **summary.counts)
+
+        scan_quality = aggregate_scan_quality(qualities)
+        ctx.metrics["quality"] = scan_quality.model_dump(mode="json")
+        for quality in qualities:
+            if quality.overall is not TrafficLight.GREEN:
+                ctx.warn(f"Flug {quality.flight_id}: {_describe(quality)}.")
+
         if total < ctx.settings.ingest.min_keyframes:
             raise QualityError(
                 f"Nur {total} brauchbare Einzelbilder in der Aufnahme "
                 f"(mindestens {ctx.settings.ingest.min_keyframes} nötig).",
                 TOO_FEW_HINTS,
             )
+        if scan_quality.overall is TrafficLight.RED:
+            raise QualityError(
+                "Die Aufnahmequalität reicht nicht für eine brauchbare Rekonstruktion.",
+                scan_quality.hints,
+            )
+        for hint in scan_quality.hints:
+            ctx.hint(hint)
 
-    def _process(self, ctx: StageContext, flight: FlightMeta) -> FlightSummary:
+    def _process(
+        self, ctx: StageContext, flight: FlightMeta
+    ) -> tuple[FlightSummary, FlightQuality]:
         cfg = ctx.settings.ingest
         video = flight_video(ctx.scan_dir, flight)
-        selection = _analyse(video, flight, cfg)
+        analysis = _analyse(video, flight, cfg)
+        selection = analysis.selection
         keyframes = selection.keyframes
 
         flight_dir = ctx.out_dir / flight.id
@@ -149,10 +181,14 @@ class IngestStage(Stage):
             for frame, image in zip(keyframes, images, strict=True)
         }
         summary = self._summarise(ctx, flight, video, selection, size)
+        quality = assess_flight(flight.id, selection, analysis.brightness, cfg)
         try:
             _write_table(selection, files, flight_dir / FRAMES_TABLE)
             (flight_dir / MANIFEST_NAME).write_text(
                 summary.model_dump_json(indent=2), encoding="utf-8"
+            )
+            (flight_dir / QUALITY_FILE).write_text(
+                quality.model_dump_json(indent=2), encoding="utf-8"
             )
         except OSError as exc:
             raise StageError(
@@ -164,7 +200,7 @@ class IngestStage(Stage):
                 "konnten gelesen werden, das Video ist vermutlich beschädigt."
             )
             ctx.hint(f"Flug {flight.id}: {BROKEN_VIDEO_HINT}")
-        return summary
+        return summary, quality
 
     def _summarise(
         self,
@@ -207,18 +243,38 @@ def _flights(scan_dir: Path) -> list[FlightMeta]:
     return flights
 
 
-def _analyse(video: Path, flight: FlightMeta, cfg: IngestSettings) -> Selection:
+def _describe(quality: FlightQuality) -> str:
+    """Readable CLI line naming the non-green criteria of one flight (US-019 AC3)."""
+    bad = [
+        label
+        for label, field in _CRITERION_LABELS
+        if getattr(quality, field).light is not TrafficLight.GREEN
+    ]
+    return f"Aufnahmequalität {quality.overall.value} ({', '.join(bad)})"
+
+
+@dataclass(frozen=True)
+class _Analysis:
+    """Keyframe selection plus the raw measures the quality assessment needs (KAN-34)."""
+
+    selection: Selection
+    brightness: list[float]  # grey level (0..255) per analysed frame, same order as selection
+
+
+def _analyse(video: Path, flight: FlightMeta, cfg: IngestSettings) -> _Analysis:
     # Heavy imports (numpy) only when the stage runs, so `drone-scan --help` stays fast.
     import numpy as np
     from numpy.typing import NDArray
 
     from dronescan.ingest.selection import Sample, select_keyframes
-    from dronescan.ingest.sharpness import Thumbnail, laplacian_variance, thumbnail
+    from dronescan.ingest.sharpness import Thumbnail, brightness, laplacian_variance, thumbnail
 
-    measured: list[tuple[float, Thumbnail]] = []
+    measured: list[tuple[float, Thumbnail, float]] = []
 
     def measure(frame: NDArray[np.uint8]) -> None:
-        measured.append((laplacian_variance(frame), thumbnail(frame, cfg.similarity_edge_px)))
+        measured.append(
+            (laplacian_variance(frame), thumbnail(frame, cfg.similarity_edge_px), brightness(frame))
+        )
 
     size = fit_size(flight.display_width, flight.display_height, cfg.analysis_edge_px)
     try:
@@ -229,14 +285,15 @@ def _analyse(video: Path, flight: FlightMeta, cfg: IngestSettings) -> Selection:
         raise InputMissingError(f"Flug {flight.id}: {exc}", [BROKEN_VIDEO_HINT]) from exc
     samples = [
         Sample(timestamp_s=time, sharpness=score, thumbnail=thumb)
-        for time, (score, thumb) in zip(times, measured, strict=True)
+        for time, (score, thumb, _) in zip(times, measured, strict=True)
     ]
-    return select_keyframes(
+    selection = select_keyframes(
         samples,
         keyframes_per_s=cfg.keyframes_per_s,
         min_rel_sharpness=cfg.min_rel_sharpness,
         max_similarity=cfg.max_similarity,
     )
+    return _Analysis(selection=selection, brightness=[bright for _, _, bright in measured])
 
 
 def _write_table(selection: Selection, files: dict[int, str], path: Path) -> None:

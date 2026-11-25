@@ -41,6 +41,16 @@ ingest:
   jpeg_qscale: 2
   min_keyframes: 3
   min_decoded_ratio: 0.9
+  blurry_warn_ratio: 0.2
+  blurry_bad_ratio: 0.5
+  duplicate_warn_ratio: 0.3
+  duplicate_bad_ratio: 0.6
+  min_coverage_ratio: 0.5
+  target_coverage_ratio: 0.75
+  exposure_dark_bad: 25
+  exposure_dark_warn: 70
+  exposure_bright_warn: 190
+  exposure_bright_bad: 230
 sfm:
   max_image_edge_px: 800
   max_num_features: 2000
@@ -240,4 +250,26 @@ def test_keyframe_rate_above_analysis_rate_is_rejected(monkeypatch: pytest.Monke
     monkeypatch.setenv("DRONESCAN_INGEST__KEYFRAMES_PER_S", "30")
 
     with pytest.raises(ValidationError, match="analysis_fps"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    ("var", "value", "match"),
+    [
+        ("DRONESCAN_INGEST__BLURRY_WARN_RATIO", "0.9", "blurry_warn_ratio"),
+        ("DRONESCAN_INGEST__DUPLICATE_WARN_RATIO", "0.9", "duplicate_warn_ratio"),
+        ("DRONESCAN_INGEST__MIN_COVERAGE_RATIO", "0.9", "min_coverage_ratio"),
+        ("DRONESCAN_INGEST__EXPOSURE_BRIGHT_WARN", "20", "exposure thresholds"),
+    ],
+)
+def test_inconsistent_quality_thresholds_are_rejected(
+    monkeypatch: pytest.MonkeyPatch, var: str, value: str, match: str
+) -> None:
+    """Given a quality-ampel threshold (KAN-34) set above its own 'bad' counterpart,
+    When the settings are loaded,
+    Then validation fails instead of silently giving a wrong (or inverted) ampel.
+    """
+    monkeypatch.setenv(var, value)
+
+    with pytest.raises(ValidationError, match=match):
         load_settings()
