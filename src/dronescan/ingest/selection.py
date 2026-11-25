@@ -12,7 +12,7 @@ from itertools import groupby
 
 from dronescan.ingest.sharpness import Thumbnail, similarity
 
-_WINDOW_EPS = 1e-6  # frames exactly on a window border belong to the new window
+_WINDOW_EPS = 1e-3  # frames on a window border belong to the new window (timestamps are µs)
 
 
 class Reason(StrEnum):

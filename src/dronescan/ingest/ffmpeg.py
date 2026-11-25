@@ -9,6 +9,7 @@ videos with a variable frame rate.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -16,6 +17,8 @@ import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
+
+import structlog
 
 if TYPE_CHECKING:
     import numpy as np
@@ -26,6 +29,8 @@ _US_PER_S = 1_000_000
 _GRID_EPS = 1e-3  # keeps frames that lie exactly on the sampling grid (float rounding)
 _VERSION = re.compile(r"^ffmpeg version (\S+)")
 _JPEG_PATTERN = "%06d.jpg"
+
+log = structlog.get_logger(__name__)
 
 
 class FfmpegError(Exception):
@@ -63,14 +68,21 @@ def _sampler(fps: float) -> str:
 
 
 def _input_args(video: Path) -> list[str]:
-    # "V" skips cover art, like probe_video.
-    return ["-nostdin", "-hide_banner", "-nostats", "-i", str(video.resolve()), "-map", "0:V:0"]
+    args = ["-nostdin", "-hide_banner", "-nostats"]
+    # A change of resolution inside the video must not restart the filters: the frame numbers
+    # of the two passes would no longer match.
+    args += ["-reinit_filter", "0", "-i", str(video.resolve())]
+    return [*args, "-map", "0:V:0"]  # "V" skips cover art, like probe_video
 
 
-def _timestamps(log: IO[str]) -> list[float]:
-    log.seek(0)
+def _environment() -> dict[str, str]:
+    return {**os.environ, "AV_LOG_FORCE_NOCOLOR": "1"}  # the showinfo output is parsed
+
+
+def _timestamps(output: IO[str]) -> list[float]:
+    output.seek(0)
     times = []
-    for line in log:
+    for line in output:
         if match := _PTS.search(line):
             try:
                 times.append(int(match.group(1)) / _US_PER_S)
@@ -87,8 +99,8 @@ def decode_gray(
 ) -> list[float]:
     """Decode ``fps`` grey frames per second; returns the timestamp (s) of each frame.
 
-    ``on_frame`` is called with one [height, width] array per frame (streaming, so memory
-    use does not depend on the length of the video).
+    ``on_frame`` is called with one [height, width] array per frame (streaming; frames are
+    not kept here).
     """
     import numpy as np
 
@@ -101,8 +113,10 @@ def decode_gray(
     frame_bytes = width * height
     count = 0
     # stderr goes to a file: a full pipe would block ffmpeg while we read stdout.
-    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as log:
-        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log) as proc:
+    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as output:
+        with subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=output, env=_environment()
+        ) as proc:
             assert proc.stdout is not None
             try:
                 while len(data := proc.stdout.read(frame_bytes)) == frame_bytes:
@@ -112,8 +126,9 @@ def decode_gray(
                 proc.kill()
                 raise
         if proc.returncode != 0 or count == 0:
+            log.error("ffmpeg_decode_failed", returncode=proc.returncode, frames=count)
             raise FfmpegError("Das Video kann nicht dekodiert werden.")
-        times = _timestamps(log)
+        times = _timestamps(output)
     if len(times) != count:
         raise FfmpegError("ffmpeg lieferte nicht für jedes Bild einen Zeitstempel.")
     return times
@@ -128,7 +143,7 @@ def extract_jpegs(
     qscale: int,
     out_dir: Path,
 ) -> list[Path]:
-    """Write the analysis frames ``indices`` (ascending) as ``000001.jpg``, ... to ``out_dir``."""
+    """Write analysis frames ``indices`` (ascending) as ``000001.jpg``, ... to empty ``out_dir``."""
     _require_ffmpeg()
     if not indices:
         return []
@@ -143,6 +158,7 @@ def extract_jpegs(
     command += ["-qscale:v", str(qscale), "-f", "image2", "-y", _JPEG_PATTERN]
     proc = subprocess.run(command, cwd=out_dir, capture_output=True, check=False)
     paths = [out_dir / (_JPEG_PATTERN % number) for number in range(1, len(indices) + 1)]
-    if proc.returncode != 0 or not all(path.is_file() for path in paths):
+    if proc.returncode != 0 or sorted(out_dir.glob("*.jpg")) != paths:
+        log.error("ffmpeg_extract_failed", returncode=proc.returncode, frames=len(paths))
         raise FfmpegError("Die Einzelbilder konnten nicht geschrieben werden.")
     return paths

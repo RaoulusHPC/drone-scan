@@ -28,6 +28,7 @@ from dronescan.common.stage import (
     Stage,
     StageContext,
     StageError,
+    hash_path,
 )
 from dronescan.ingest.ffmpeg import (
     FfmpegError,
@@ -147,10 +148,16 @@ class IngestStage(Stage):
             frame.index: f"{FRAMES_DIR}/{image.name}"
             for frame, image in zip(keyframes, images, strict=True)
         }
-        _write_table(selection, files, flight_dir / FRAMES_TABLE)
-
         summary = self._summarise(ctx, flight, video, selection, size)
-        (flight_dir / MANIFEST_NAME).write_text(summary.model_dump_json(indent=2), encoding="utf-8")
+        try:
+            _write_table(selection, files, flight_dir / FRAMES_TABLE)
+            (flight_dir / MANIFEST_NAME).write_text(
+                summary.model_dump_json(indent=2), encoding="utf-8"
+            )
+        except OSError as exc:
+            raise StageError(
+                f"Flug {flight.id}: Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]
+            ) from exc
         if summary.decoded_s < cfg.min_decoded_ratio * flight.duration_s:
             ctx.warn(
                 f"Flug {flight.id}: nur {summary.decoded_s:.1f} s von {flight.duration_s:.1f} s "
@@ -175,7 +182,7 @@ class IngestStage(Stage):
         return FlightSummary(
             flight_id=flight.id,
             video=video.relative_to(ctx.scan_dir).as_posix(),
-            video_sha256=flight.sha256,
+            video_sha256=hash_path(video),
             params=self.params(ctx.settings),
             tools=self.tool_versions(),
             frame_width=size[0],

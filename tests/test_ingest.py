@@ -219,6 +219,19 @@ def test_windows_follow_timestamps_not_frame_numbers() -> None:
     assert [f.window for f in select(late).frames] == [0, 0, 10]
 
 
+@pytest.mark.parametrize("rate", [1.0, 2.0, 3.0, 6.0])
+def test_no_window_is_lost_by_rounding(rate: float) -> None:
+    """Given 60 s of samples with microsecond timestamps on an ideal 6 fps grid,
+    When selected with a rate that divides the grid,
+    Then every window yields a keyframe.
+    """
+    samples = [
+        Sample(round(s.timestamp_s, 6), s.sharpness, s.thumbnail) for s in samples_of([10.0] * 360)
+    ]
+
+    assert len(select(samples, rate).keyframes) == 60 * rate
+
+
 def test_empty_video_gives_empty_selection() -> None:
     """Given no samples, When selected, Then nothing is returned (no crash)."""
     assert select([]).frames == []
@@ -381,6 +394,67 @@ def test_jpegs_show_the_selected_frames(tmp_path: Path) -> None:
     assert len(seen) == 12
     for path, index in zip(paths, (0, 3, 11), strict=True):
         assert float(read_gray(path).mean()) == pytest.approx(seen[index], abs=3)
+
+
+@needs_ffmpeg
+def test_resolution_change_keeps_both_passes_in_sync(tmp_path: Path) -> None:
+    """Given a video whose resolution changes in the middle,
+    When ingested,
+    Then every JPEG still shows the frame of its table row (frame numbers do not restart).
+    """
+    parts = []
+    for part, (width, height) in enumerate(((WIDTH, HEIGHT), (2 * WIDTH, 2 * HEIGHT))):
+        levels = range(20 + part * 100, 20 + part * 100 + 96, 4)
+        frames = [np.full((height, width), level, dtype=np.uint8) for level in levels]
+        parts.append(write_video(tmp_path / f"part{part}.ts", frames, fps=12))
+    video = tmp_path / "joined.ts"
+    joined = f"concat:{parts[0]}|{parts[1]}"
+    command = ["ffmpeg", "-v", "error", "-y", "-i", joined, "-c", "copy", str(video)]
+    subprocess.run(command, check=True)
+    seen: list[float] = []
+    decode_gray(video, (WIDTH, HEIGHT), 6, lambda frame: seen.append(float(frame.mean())))
+    out = tmp_path / "out"
+    out.mkdir()
+
+    indices = [1, 4, len(seen) - 5, len(seen) - 2]  # both parts; not all, or a restart is hidden
+    paths = extract_jpegs(video, indices, size=(WIDTH, HEIGHT), fps=6, qscale=2, out_dir=out)
+
+    assert len(seen) >= 20 and max(seen) > 150  # both parts were decoded
+    for path, index in zip(paths, indices, strict=True):
+        assert float(read_gray(path).mean()) == pytest.approx(seen[index], abs=3)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("matrix", ["bt709", "smpte170m"])
+def test_jpeg_colours_match_the_video(tmp_path: Path, matrix: str) -> None:
+    """Given an orange clip tagged BT.709 or BT.601 (limited range),
+    When a frame is extracted,
+    Then the JPEG has the same colour (matrix and range converted to JFIF).
+    """
+    video = tmp_path / "orange.mp4"
+    name = "bt601" if matrix == "smpte170m" else matrix
+    command = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi"]
+    command += ["-i", "color=c=0xC86414:size=320x180:rate=6:duration=1"]
+    command += ["-vf", f"scale=out_color_matrix={name}:out_range=tv,format=yuv420p"]
+    command += ["-c:v", "libx264", "-qp", "4", "-colorspace", matrix, "-color_range", "tv"]
+    subprocess.run([*command, str(video)], check=True)
+
+    (path,) = extract_jpegs(video, [0], size=(320, 180), fps=6, qscale=2, out_dir=tmp_path)
+
+    command = ["ffmpeg", "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    raw = subprocess.run(command, capture_output=True, check=True).stdout
+    rgb = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).mean(axis=0)
+    assert rgb.tolist() == pytest.approx([0xC8, 0x64, 0x14], abs=8)
+
+
+@needs_ffmpeg
+def test_coloured_ffmpeg_log_does_not_disturb(
+    moving_video: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a shell that forces coloured ffmpeg logs, Then timestamps are still parsed."""
+    monkeypatch.setenv("AV_LOG_FORCE_COLOR", "1")
+
+    assert len(decode_gray(moving_video, (WIDTH, HEIGHT), 6, lambda frame: None)) == 18
 
 
 @needs_ffmpeg
