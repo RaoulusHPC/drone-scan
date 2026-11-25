@@ -238,6 +238,23 @@ stories:
     labels: [infra]
     deps: [US-003, US-006]
 
+  - id: US-066
+    epic: EP-01
+    type: Task
+    title: "ffmpeg im Worker-Image, Image mit aktuellen Abhängigkeiten neu bauen"
+    as: P5
+    want: "`flight add` und `ingest` auch im Worker-Container ausführen"
+    so: "die Pipeline nicht vom Host abhängt"
+    ac:
+      - "Das Laufzeit-Image `worker` enthält ffmpeg und ffprobe; `license-auditor` hat die Paketlizenz geprüft (externer Prozess, Image nur lokal)."
+      - "Gegeben ein synthetisches Video, wenn `flight add` und `ingest` im Worker-Container laufen, dann entstehen dieselben Artefakte wie auf dem Host."
+      - "Das Image baut mit dem aktuellen `uv.lock`; PyTorch bleibt auf cu126, `make docker-check` ist grün."
+    prio: Could
+    sp: 2
+    ms: m1
+    labels: [infra]
+    deps: [US-003, US-018]
+
   # ---------------- EP-02 Erfassung & Import ----------------
   - id: US-013
     epic: EP-02
@@ -376,8 +393,8 @@ stories:
     want: "aus Keyframes Kameraposen und eine dünne Punktwolke"
     so: "Splat-Training und Suche darauf aufbauen können"
     ac:
-      - "COLMAP-Adapter (Container) mit Feature-Extraktion, sequenziellem Matching + Loop-Detection, Mapper."
-      - "Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen."
+      - "COLMAP-Adapter (Container) mit Feature-Extraktion, Matching (bis ca. 250 Keyframes erschöpfend, darüber sequenziell mit Loop-Detection; Grenze im Profil) und Mapper."
+      - "Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen, 80 bis < 90 % → Warnung und Hinweise im Manifest."
       - "Läuft im Profil `low_vram_6gb` (Bildkante begrenzt)."
     prio: Must
     sp: 5

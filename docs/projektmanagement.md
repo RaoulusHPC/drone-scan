@@ -56,8 +56,8 @@
 
 | Sprint | Zeitraum | Sprintziel |
 |---|---|---|
-| S0 | 23.11.–04.12.2026 | Fundament steht, Machbarkeit auf 6 GB nachgewiesen |
-| S1 | 07.12.–18.12.2026 | Video → Keyframes → COLMAP-Posen per CLI |
+| S0 | 21.11.–25.11.2026 (vorzeitig abgeschlossen) | Fundament steht, Machbarkeit auf 6 GB nachgewiesen |
+| S1 | 25.11.–09.12.2026 | Video → Keyframes → COLMAP-Posen per CLI |
 | — | 21.12.2026–03.01.2027 | Pause |
 | S2 | 04.01.–15.01.2027 | Splat-Training im 6-GB-Profil, Qualitätsreport |
 | S3 | 18.01.–29.01.2027 | Server + PWA-Viewer, Upload bis Begehung → **M1** |
