@@ -15,6 +15,11 @@ help: ## Show available targets
 setup: ## Create Python 3.12 env (uv.lock), install pre-commit hooks
 	$(UV) sync --locked
 	$(UV) run pre-commit install
+	@if command -v git-lfs >/dev/null 2>&1; then \
+		git lfs install --local || echo "Hinweis: 'git lfs install --local' ist fehlgeschlagen (vermutlich existiert bereits ein Git-Hook, z. B. pre-push). Setup wird fortgesetzt; Beispielclips in data/samples/ ggf. manuell prüfen." >&2; \
+	else \
+		echo "Hinweis: git-lfs ist nicht installiert – Beispielclips in data/samples/ werden ohne LFS gespeichert. Abhilfe: sudo apt install git-lfs, danach make setup erneut ausführen. Setup wird fortgesetzt." >&2; \
+	fi
 	@if [ -f viewer/package.json ]; then cd viewer && pnpm install; else echo "viewer/ fehlt noch – pnpm install übersprungen"; fi
 	@mkdir -p workspace data
 	@if [ -f docker-compose.yml ] || [ -f compose.yaml ]; then docker compose build; else echo "Docker-Compose-Datei fehlt noch (KAN-18) – docker build übersprungen"; fi

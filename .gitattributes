@@ -1,1 +1,4 @@
 *.patch -text -whitespace
+data/samples/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+data/samples/**/*.mov filter=lfs diff=lfs merge=lfs -text
+data/samples/**/*.mkv filter=lfs diff=lfs merge=lfs -text
