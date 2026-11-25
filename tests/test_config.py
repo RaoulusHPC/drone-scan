@@ -27,6 +27,8 @@ VALID_PROFILE = """\
 vram_limit_gb: 3.0
 gpu:
   allow_fp16: false
+  lock_timeout_s: 1800
+  lock_poll_s: 1
 ingest:
   analysis_fps: 6
   analysis_edge_px: 480

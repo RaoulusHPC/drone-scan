@@ -50,18 +50,16 @@ class GpuSettings(_Section):
     )
     lock_file: Path | None = Field(
         default=None,
-        description="Machine-wide GPU lock file (KAN-80). Default: '.gpu.lock' in the parent of "
-        "the scan directory, i.e. the mounted workspace/ shared by host, worker and colmap.",
+        description="Machine-wide GPU lock file (KAN-80). Default: gpu.lock in "
+        "$DRONESCAN_GPU_LOCK_DIR, else $XDG_STATE_HOME/drone-scan, else ~/.local/state/drone-scan. "
+        "Containers set this to the mounted path.",
     )
     lock_timeout_s: float = Field(
-        default=1800.0,
         ge=0,
         description="Seconds a GPU stage waits for another GPU job before it gives up (0 = fail "
         "immediately).",
     )
-    lock_poll_s: float = Field(
-        default=1.0, gt=0, description="Seconds between attempts to take the GPU lock."
-    )
+    lock_poll_s: float = Field(gt=0, description="Seconds between attempts to take the GPU lock.")
 
 
 class IngestSettings(_Section):
