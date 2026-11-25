@@ -5,6 +5,7 @@ Reads the hook JSON from stdin. Exit code 2 blocks the Bash call and
 returns the stderr message to Claude. Real flights are started by a human
 in their own terminal only.
 """
+
 import json
 import re
 import sys
@@ -12,7 +13,7 @@ import sys
 BLOCKED = [
     r"--real-flight",
     r"\bfly-real\b",
-    r"udp:192\.168\.10\.1",          # DJI/Ryze Tello default address
+    r"udp:192\.168\.10\.1",  # DJI/Ryze Tello default address
     r"--master[= ]+(/dev/tty|udp:(?!127\.0\.0\.1)|tcp:(?!127\.0\.0\.1))",  # MAVLink to non-local endpoints
 ]
 

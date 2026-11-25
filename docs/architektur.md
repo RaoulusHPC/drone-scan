@@ -164,6 +164,8 @@ Umsetzung (KAN-21): Basisklasse `dronescan.common.stage.Stage` und `run_stage()`
 - **CLI:** `register_stage(app, StageClass)` erzeugt `drone-scan <stufe> --scan --profile --force`.
 - **Fehlercodes:** siehe `docs/fehlercodes.md`.
 
+Umsetzung Import (KAN-28): `drone-scan scan create <name>` legt `workspace/<id>/scan.yaml` an (`--workspace` bzw. `DRONESCAN_WORKSPACE_DIR`). `drone-scan flight add <scan> <video>` prüft per ffprobe, kopiert nach `flights/<fNN>/video.<ext>` und trägt je Flug in `scan.yaml` ein: Flug-ID, kodierte Größe, Rotation (0/90/180/270), **Anzeigegröße nach Rotation** (`display_width/height`, maßgeblich für Frame-Extraktion), fps, Dauer, Codec, sha256. Importfehler enden mit Exit 10.
+
 ### 5.3 Datenmodell / Artefakt-Layout
 
 ```text

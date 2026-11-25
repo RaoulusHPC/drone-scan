@@ -119,9 +119,7 @@ def check_3dgs(s: dict[str, torch.Tensor], report: dict) -> None:
     ref = grads(outs64, [x.double() for x in w], s64)
     compare("3dgs_fused_vs_f64", fused, ref, STRICT, report)
 
-    packed = fully_fused_projection(
-        s["means"], None, s["quats"], s["scales"], *args, packed=True
-    )
+    packed = fully_fused_projection(s["means"], None, s["quats"], s["scales"], *args, packed=True)
     _, cam, gid, _, *p_outs = packed[:7]
     p_w = [wi[cam, gid] for wi in w]  # same upstream gradients (already masked by valid)
     compare("3dgs_packed_vs_fused", grads(p_outs, p_w, s), fused, STRICT, report)
