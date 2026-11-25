@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Sample clips go through Git LFS and `make setup` handles git-lfs (KAN-79, AC 1 and AC 2)."""
 
 from __future__ import annotations
@@ -33,6 +34,13 @@ def lfs_filter_for(path: str) -> str:
         "data/samples/rundgang/kurz.mp4",
         "data/samples/rundgang/kurz.mov",
         "data/samples/rundgang/kurz.mkv",
+        "data/samples/KURZ.MP4",
+        "data/samples/KURZ.MOV",
+        "data/samples/KURZ.MKV",
+        "data/samples/rundgang/KURZ.MP4",
+        "data/samples/rundgang/KURZ.MOV",
+        "data/samples/rundgang/KURZ.MKV",
+        "data/samples/rundgang/Kurz.Mp4",
     ],
 )
 def test_sample_clips_are_routed_through_lfs(path: str) -> None:
