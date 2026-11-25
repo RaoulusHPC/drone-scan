@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Golden thresholds for `make smoke` on data/samples/kurz.mp4 (KAN-26).
+# Thresholds, not exact values. Measured on the GTX 1060 (main 84743a6, 2026-11-26):
+# 30/30 registered, 0.61 px, 8752 points, peak 844 MiB, ingest + sfm 49 s.
+# Raise `version` whenever a threshold changes.
+version: 1
+clip: data/samples/kurz.mp4
+profile: low_vram_6gb
+max_seconds: 120            # AC: whole smoke run below 2 min
+poses:
+  min_registered_frames: 27   # of 30 keyframes (90 %)
+  max_reproj_error_px: 1.0
+  min_points: 4000
+  max_peak_vram_mib: 5632     # 5.5 GiB budget per process incl. CUDA context
+splat:
+  min_psnr_db: null           # set with KAN-41 (stage recon.splat), skipped until then
