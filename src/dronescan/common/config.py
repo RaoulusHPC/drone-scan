@@ -87,11 +87,63 @@ class IngestSettings(_Section):
     min_decoded_ratio: float = Field(
         ge=0, le=1, description="Warn if less of the video duration could be decoded."
     )
+    blurry_warn_ratio: float = Field(
+        ge=0, le=1, description="Share of windows lost to blur (Q-9) above which: yellow."
+    )
+    blurry_bad_ratio: float = Field(
+        ge=0, le=1, description="Share of windows lost to blur above which: red."
+    )
+    duplicate_warn_ratio: float = Field(
+        ge=0,
+        le=1,
+        description="Share of windows that were a duplicate of the last keyframe (camera stood "
+        "still) above which: yellow.",
+    )
+    duplicate_bad_ratio: float = Field(
+        ge=0, le=1, description="Share of duplicate windows above which: red."
+    )
+    min_coverage_ratio: float = Field(
+        ge=0, le=1, description="Share of windows with a new keyframe below which: red (Q-9)."
+    )
+    target_coverage_ratio: float = Field(
+        ge=0, le=1, description="Share of windows with a new keyframe below which: yellow."
+    )
+    exposure_dark_bad: float = Field(
+        ge=0, le=255, description="Median grey level (0..255) below which: red (too dark)."
+    )
+    exposure_dark_warn: float = Field(
+        ge=0, le=255, description="Median grey level below which: yellow (too dark)."
+    )
+    exposure_bright_warn: float = Field(
+        ge=0, le=255, description="Median grey level above which: yellow (too bright)."
+    )
+    exposure_bright_bad: float = Field(
+        ge=0, le=255, description="Median grey level above which: red (too bright)."
+    )
 
     @model_validator(mode="after")
     def _enough_analysis_frames(self) -> Self:
         if self.keyframes_per_s > self.analysis_fps:
             raise ValueError("keyframes_per_s must not exceed analysis_fps")
+        return self
+
+    @model_validator(mode="after")
+    def _consistent_quality_thresholds(self) -> Self:
+        if self.blurry_warn_ratio > self.blurry_bad_ratio:
+            raise ValueError("blurry_warn_ratio must not exceed blurry_bad_ratio")
+        if self.duplicate_warn_ratio > self.duplicate_bad_ratio:
+            raise ValueError("duplicate_warn_ratio must not exceed duplicate_bad_ratio")
+        if self.min_coverage_ratio > self.target_coverage_ratio:
+            raise ValueError("min_coverage_ratio must not exceed target_coverage_ratio")
+        if not (
+            self.exposure_dark_bad
+            <= self.exposure_dark_warn
+            < self.exposure_bright_warn
+            <= self.exposure_bright_bad
+        ):
+            raise ValueError(
+                "exposure thresholds must satisfy dark_bad <= dark_warn < bright_warn <= bright_bad"
+            )
         return self
 
 

@@ -291,7 +291,7 @@ flowchart LR
 
 ### 8.2 Aufnahmequalität (Capture Guidance)
 - Vor dem Flug zeigt der Viewer eine Checkliste: Licht an, Türen offen, Spiegel/Glas notieren, 2–4 AprilTags auslegen, langsam fliegen (≤ 0,5 m/s), Wände in 1–1,5 m Abstand, jeden Raum einmal umrunden, Türdurchgänge doppelt.
-- Nach dem Upload liefert `ingest/quality.json` Schärfeverteilung, Bewegungsgeschwindigkeit, Belichtung und Abdeckung samt Handlungsempfehlungen.
+- Nach dem Upload bewertet `ingest` je Flug Schärfe, Belichtung, Bewegungsgeschwindigkeit und Abdeckung (grob) in `ingest/<flight_id>/quality.json` (Ampel grün/gelb/rot je Kriterium, Handlungsempfehlungen auf Deutsch). `ingest/manifest.json` (`metrics.quality`) fasst alle Flüge eines Scans zu einer Gesamtampel zusammen; der Viewer zeigt sie an (US-019/KAN-34, PO-Entscheidung 2026-11-25: die Ampel-Darstellung selbst folgt mit KAN-43).
 
 ### 8.3 Reproduzierbarkeit & Caching
 Es gibt Manifeste pro Stufe, gepinnte Abhängigkeiten (`uv.lock`), ein `models.lock` (Name, Version, SHA-256, Lizenz, Quelle) und feste Seeds.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Image measures on small grey frames: sharpness and similarity (numpy, CPU)."""
+"""Image measures on small grey frames: sharpness, exposure and similarity (numpy, CPU)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ def laplacian_variance(frame: Gray) -> float:
         4 * data[1:-1, 1:-1] - data[:-2, 1:-1] - data[2:, 1:-1] - data[1:-1, :-2] - data[1:-1, 2:]
     )
     return float(laplacian.var())
+
+
+def brightness(frame: Gray) -> float:
+    """Mean grey level (0..255); low = underexposed, high = overexposed (KAN-34)."""
+    return float(frame.astype(np.float32).mean())
 
 
 def thumbnail(frame: Gray, long_edge: int) -> Thumbnail:

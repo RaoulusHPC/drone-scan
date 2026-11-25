@@ -18,6 +18,19 @@ ingest: # start values from spike-01 (section 7)
   jpeg_qscale: 2
   min_keyframes: 3
   min_decoded_ratio: 0.9
+  # Quality ampel (KAN-34, US-019), provisional, calibration open (spike-01/KAN-19):
+  # ratios are relative to the already-decided keyframe windows (Reason), so they stay
+  # meaningful across cameras; only the exposure values are absolute grey levels (0..255).
+  blurry_warn_ratio: 0.2
+  blurry_bad_ratio: 0.5
+  duplicate_warn_ratio: 0.3
+  duplicate_bad_ratio: 0.6
+  min_coverage_ratio: 0.5
+  target_coverage_ratio: 0.75
+  exposure_dark_bad: 25
+  exposure_dark_warn: 70
+  exposure_bright_warn: 190
+  exposure_bright_bad: 230
 sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   max_image_edge_px: 1600
   max_num_features: 8192
