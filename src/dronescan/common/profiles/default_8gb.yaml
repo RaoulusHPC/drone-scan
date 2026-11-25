@@ -25,9 +25,10 @@ sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   camera_model: SIMPLE_RADIAL
   exhaustive_max_keyframes: 250 # above: sequential matching with loop detection
   sequential_overlap: 10
-  loop_vocab_words: 4096
-  loop_vocab_iterations: 25
-  loop_vocab_max_descriptors: 2000000
+  loop_vocab_words: 2048 # larger trees take minutes (4096 words, 2M descriptors: > 5 min)
+  loop_vocab_iterations: 10
+  loop_vocab_rounds: 1
+  loop_vocab_max_descriptors: 200000
   min_registration_ratio: 0.8 # below: exit 20
   target_registration_ratio: 0.9 # Q-3; below: warning
   oom_retry_image_edge_px: 1600

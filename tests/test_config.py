@@ -50,6 +50,7 @@ sfm:
   sequential_overlap: 5
   loop_vocab_words: 256
   loop_vocab_iterations: 5
+  loop_vocab_rounds: 1
   loop_vocab_max_descriptors: 100000
   min_registration_ratio: 0.8
   target_registration_ratio: 0.9

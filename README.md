@@ -35,7 +35,7 @@ make docker-check                    # GPU im Container sichtbar? erwartet z. B.
 
 Die Verzeichnisse `workspace/` und `data/` legt `make setup` bzw. `make docker-check` an, damit sie dem Benutzer gehören (Docker würde sie sonst als root anlegen). Einzelne Jobs starten mit `docker compose run --rm <dienst> …`, nicht mit `docker compose up`: Worker und COLMAP teilen sich dieselbe GPU und laufen nie parallel.
 
-Standardmäßig nutzen die Container die GPU mit Index 0. Bei mehreren GPUs lässt sie sich mit `DRONESCAN_GPU_DEVICE=<index> docker compose …` wählen. Auf dem Entwicklungsrechner ist die RTX 2070 SUPER reserviert und wird nur mit Zustimmung des POs genutzt.
+Standardmäßig nutzen die Container die GPU mit Index 0. Bei mehreren GPUs lässt sie sich mit `DRONESCAN_GPU_DEVICE=<index> docker compose …` wählen. `drone-scan sfm` (läuft auf dem Host und startet COLMAP im Container) beachtet dieselbe Variable. Auf dem Entwicklungsrechner ist die RTX 2070 SUPER reserviert und wird nur mit Zustimmung des POs genutzt.
 
 ## Loslegen mit Claude Code
 

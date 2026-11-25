@@ -228,6 +228,7 @@ class _Reconstruction:
             "vocab_tree_path": f"/sfm/{_VOCAB_TREE}",
             "num_visual_words": self._cfg.loop_vocab_words,
             "num_iterations": self._cfg.loop_vocab_iterations,
+            "num_rounds": self._cfg.loop_vocab_rounds,
             "max_num_descriptors": self._cfg.loop_vocab_max_descriptors,
         }
         self._record("vocab_tree", self._colmap.run("vocab_tree_builder", options))

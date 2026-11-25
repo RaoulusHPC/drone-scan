@@ -113,6 +113,7 @@ class SfmSettings(_Section):
         description="Words of the vocabulary tree built from the scan's own features."
     )
     loop_vocab_iterations: PositiveInt = Field(description="k-means iterations of the tree.")
+    loop_vocab_rounds: PositiveInt = Field(description="k-means restarts of the tree.")
     loop_vocab_max_descriptors: PositiveInt = Field(
         description="Descriptors sampled for building the tree (CPU time, RAM)."
     )

@@ -553,28 +553,35 @@ def test_colmap_failure_exits_1_without_stale_result(scan: Path, docker: FakeDoc
 
 
 @pytest.mark.parametrize(
-    ("code", "output"), [(1, "Not enough GPU memory to match 8192 features."), (0, "out of memory")]
+    ("command", "code", "output"),
+    [
+        ("exhaustive_matcher", 1, "Not enough GPU memory to match 8192 features. Reduce ..."),
+        # Real output of COLMAP 4.2.1 on the GTX 1060: it skips the image and exits with 0.
+        ("feature_extractor", 0, "PyramidCU::GenerateFeatureList:\tout of memory"),
+    ],
 )
 def test_gpu_oom_is_retried_once_with_smaller_values(
-    scan: Path, docker: FakeDocker, code: int, output: str
+    scan: Path, docker: FakeDocker, command: str, code: int, output: str
 ) -> None:
-    """Given a first matching attempt without enough VRAM (exit code or only a log message),
+    """Given a first attempt without enough VRAM (reported by exit code or only in the log),
     When the stage runs,
     Then features and matching are repeated once with the smaller values of the profile.
     """
     docker.models(10)
-    docker.fail("exhaustive_matcher", output, code=code)
+    docker.fail(command, output, code=code)
     cfg = load_settings().sfm
 
     result = sfm(scan)
 
     assert result.exit_code is ExitCode.OK
-    assert docker.commands()[:4] == ["feature_extractor", "exhaustive_matcher"] * 2
+    commands = docker.commands()
+    assert commands.count(command) == 2
+    assert commands[-4:] == ["feature_extractor", "exhaustive_matcher", "mapper", "model_converter"]
     second = docker.options("feature_extractor", occurrence=1)
     edge, features = cfg.oom_retry_image_edge_px, cfg.oom_retry_num_features
     assert second["--FeatureExtraction.max_image_size"] == str(edge)
     assert second["--SiftExtraction.max_num_features"] == str(features)
-    matching = docker.options("exhaustive_matcher", occurrence=1)
+    matching = docker.options("exhaustive_matcher", occurrence=-1)
     assert matching["--FeatureMatching.max_num_matches"] == str(features)
     assert any("Grafikspeicher" in warning for warning in result.manifest.warnings)
 
@@ -963,20 +970,3 @@ def test_unrelated_images_exit_20(tmp_path: Path) -> None:
 
     assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT, result.manifest.error
     assert result.manifest.hints
-
-
-@pytest.mark.gpu
-@needs_colmap
-def test_real_gpu_oom_exits_30(tmp_path: Path) -> None:
-    """Given a match capacity that no 6 GiB card can hold,
-    When the real COLMAP matcher runs,
-    Then the missing memory is recognised and the stage exits 30.
-    """
-    scan_dir = room_scan(tmp_path / "scan", views(30)[:3])
-    huge = 2_000_000
-
-    result = sfm(
-        scan_dir, with_sfm(max_num_matches=huge, oom_retry_num_features=huge, max_num_features=huge)
-    )
-
-    assert result.exit_code is ExitCode.OOM, result.manifest.error

@@ -161,7 +161,8 @@ Umsetzung (KAN-21): Basisklasse `dronescan.common.stage.Stage` und `run_stage()`
 - **Manifest:** Es wird immer atomar geschrieben, auch bei Fehlern, damit Status und `hints` für Server und UI vorliegen. Nur `status: ok` gilt als Cache. Der Cache-Schlüssel umfasst Stufenversion, Input-Hashes, Parameter (JSON-normalisiert) und Tool-Versionen. Eingaben müssen im Scan-Verzeichnis liegen; absolute Pfade werden aus Fehlertexten entfernt. Zusätzlich werden das Profil, `exit_code` und `error` festgehalten.
 - **GPU-Stufen** (`uses_gpu = True`): `run_stage()` setzt vor dem Lauf das VRAM-Limit (`common.gpu.apply_vram_limit`). `peak_vram_mb` stammt aus `torch.cuda.max_memory_reserved` und enthält damit noch nicht den CUDA-Kontext; die Messung pro Prozess folgt mit KAN-41.
 - **GPU-Lock** (KAN-80): Eine Stufe mit `uses_gpu = True`, die wirklich rechnet (nicht bei Cache-Treffer), nimmt vorher den maschinenweiten Lock `common.gpu_lock` (`flock` auf `gpu.lock`). Ort: `$DRONESCAN_GPU_LOCK_DIR`, sonst `$XDG_STATE_HOME/drone-scan`, sonst `~/.local/state/drone-scan` (wird bei Bedarf angelegt; ohne nutzbares Verzeichnis Fehlermeldung statt stillem Ausweichen). Dadurch gilt ein Lock je Rechner, unabhängig von Scan-Ort und Worktree. Container mounten dasselbe Host-Verzeichnis (`compose.yaml`, von `make setup` angelegt) und setzen `DRONESCAN_GPU__LOCK_FILE=/run/drone-scan-gpu/gpu.lock`. Der Lock liegt bis nach dem Schreiben des Manifests und wartet höchstens `gpu.lock_timeout_s` (Profil, 1800 s; `DRONESCAN_GPU__LOCK_TIMEOUT_S`), danach Exit 1 mit Abhilfe. Nach dem Warten werden Eingabe-Hashes und Cache neu geprüft: Hat die andere Stufe dasselbe Ergebnis erzeugt, wird übersprungen. Ein Timeout oder Strg+C beim Warten lässt ein vorhandenes Manifest unangetastet. Der Kernel gibt den Lock bei jedem Prozessende frei (auch SIGKILL), die Datei wird nie gelöscht. Der Deskriptor ist close-on-exec: COLMAP- oder `docker run`-Kindprozesse erben ihn nicht. Überlebt ein solches Kind einen gekillten Runner, ist der Lock frei, obwohl die GPU noch belegt ist; es muss dann von Hand beendet werden. Nur auf einem Host (kein NFS).
-- **`applies_vram_limit`** (Standard `True`, nur mit `uses_gpu`): setzt das PyTorch-VRAM-Limit und misst den Peak im eigenen Prozess. Stufen, die die GPU über Subprozess/Container nutzen (COLMAP), setzen `False`: sie nehmen den Lock, der Runner macht aber keine torch-Aufrufe (kein `peak_vram_mb`).
+- **`applies_vram_limit`** (Standard `True`, nur mit `uses_gpu`): setzt das PyTorch-VRAM-Limit und misst den Peak im eigenen Prozess. Stufen, die die GPU über Subprozess/Container nutzen (COLMAP), setzen `False`: sie nehmen den Lock, der Runner macht aber keine torch-Aufrufe. Ihren Peak melden sie selbst über `StageContext.record_peak_vram` (`peak_vram_mb`, inkl. CUDA-Kontext).
+- **`metrics`** (KAN-36): Messwerte der Stufe im Manifest (nur Zahlen, keine Bildinhalte), auch bei Exit 20.
 - **OOM** (`OutOfMemoryError`, „out of memory“, `MemoryError`) ergibt Exit 30 mit Abhilfe. Die automatische Wiederholung mit kleinerem Profil übernimmt die Job-Queue.
 - **CLI:** `register_stage(app, StageClass)` erzeugt `drone-scan <stufe> --scan --profile --force`.
 - **Fehlercodes:** siehe `docs/fehlercodes.md`.
@@ -172,6 +173,13 @@ Umsetzung Frame-Extraktion (KAN-33): `drone-scan ingest --scan workspace/<id>` d
 
 `frames.parquet` hat eine Zeile je analysiertem Bild: `index`, `timestamp_s`, `sharpness`, `window`, `similarity` (zum vorigen Keyframe, sonst leer), `selected`, `reason` (`keyframe`, `not_sharpest`, `blurry`, `duplicate`), `file` (relativ zum Flugordner). `ingest/manifest.json` ist das Stufenmanifest (§5.2) über alle Flüge, `ingest/<flight_id>/manifest.json` die Zusammenfassung je Flug (Größe, Schärfeverteilung, Schwelle, Anzahl je Grund).
 
+Umsetzung Kameraposen (KAN-36): `drone-scan sfm --scan workspace/<id>` läuft auf dem Host und startet je COLMAP-Befehl einen Container (`docker run`, Image `drone-scan/colmap:4.2.1`, ohne Netzwerk, als aufrufender Benutzer, `ingest/` nur lesend, GPU `DRONESCAN_GPU_DEVICE`, Standard 0). CPU-Schritte (Vocabulary Tree, Mapper) bekommen keine GPU.
+- **Ablauf:** SIFT (GPU) → Matching (GPU) → Mapper (CPU). Alle Flüge werden gemeinsam rekonstruiert, mit einer Kamera je Flug; Bildnamen im Modell: `f01/frames/000001.jpg`. Getrennte Teilmodelle zusammenzuführen ist KAN-38.
+- **Matching:** bis `sfm.exhaustive_max_keyframes` (250) Keyframes werden alle Paare verglichen, darüber sequentiell mit Loop-Detection (PO-Entscheidung 25.11.2026). Den Vocabulary Tree baut `vocab_tree_builder` je Scan aus den eigenen SIFT-Merkmalen: kein Download, keine fremden Gewichte.
+- **Ergebnis:** `sfm/colmap/sparse/0` ist das größte Teilmodell im COLMAP-Textformat, `sfm/colmap/models/` enthält alle Teilmodelle (binär), `sfm/colmap/logs/` die COLMAP-Ausgaben. Im Manifest stehen unter `metrics` u. a. Registrierungsquote (Bilder im größten Teilmodell / Keyframes), mittlerer Reprojektionsfehler, Teilmodellgrößen, Anzahl je Flug und Laufzeiten.
+- **Schwellen:** unter `min_registration_ratio` (80 %) Exit 20 mit Hinweisen und ohne `sparse/0`, damit keine Stufe auf einem Bruchstück aufbaut. Unter `target_registration_ratio` (90 %, Q-3) läuft die Pipeline mit Warnung weiter.
+- **VRAM:** COLMAP unterliegt nicht der PyTorch-Grenze. Bildkante, Merkmale und Matcher-Kapazität stehen im Profil, der Peak des COLMAP-Prozesses wird mit `nvidia-smi` gemessen. COLMAP meldet fehlenden Grafikspeicher teils nur im Log (Code 0), der Adapter wertet deshalb das Log aus, wiederholt einmal mit `oom_retry_*` und endet sonst mit Exit 30.
+
 ### 5.3 Datenmodell / Artefakt-Layout
 
 ```text
@@ -181,7 +189,7 @@ workspace/<scan_id>/                 # ein Gebäude/Objekt, eine Erfassungskampa
   flights/<flight_id>/telemetry.csv  # optional
   ingest/manifest.json               # Stufenmanifest
   ingest/<flight_id>/frames/*.jpg, frames.parquet, manifest.json, quality.json
-  sfm/colmap/{database.db, sparse/0}, sfm/aligned/{transform.json, scale_report.json}
+  sfm/colmap/{database.db, sparse/0, models/*, logs/}, sfm/aligned/{transform.json, scale_report.json}
   recon/splat/{scene.ply, scene.spz, metrics.json}, recon/mesh/scene.glb, recon/floorplan/plan.svg
   search/{detections.parquet, embeddings.faiss, objects.json}
   export/viewer_bundle/, export/scene.gltf, export/pointcloud.e57
