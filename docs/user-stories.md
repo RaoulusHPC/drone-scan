@@ -3,7 +3,7 @@
 > Generiert aus `backlog/backlog.yaml` mit `tools/backlog_export.py` – **nicht von Hand bearbeiten**.
 > Führendes System für Status und Sprints ist **Jira (Projekt „DRN“ (Schlüssel `KAN`))**. Priorität: MoSCoW → Jira (Must=Highest, Should=High, Could=Medium).
 
-**Umfang:** 12 Epics · 65 Stories/Tasks · 287 Story Points
+**Umfang:** 12 Epics · 66 Stories/Tasks · 289 Story Points
 
 ## Personas
 
@@ -20,7 +20,7 @@
 | Meilenstein | Stories | SP | Must | Should | Could |
 |---|---|---|---|---|---|
 | M0 Fundament & Spikes | 8 | 27 | 8 | 0 | 0 |
-| M1 MVP „Video → Begehung“ | 21 | 79 | 12 | 8 | 1 |
+| M1 MVP „Video → Begehung“ | 22 | 81 | 12 | 8 | 2 |
 | M2 Gegenstandssuche | 6 | 28 | 4 | 1 | 1 |
 | M3 Drohnen-Erfassung | 9 | 41 | 3 | 3 | 3 |
 | M4 Präsentationsreife | 13 | 57 | 4 | 5 | 4 |
@@ -30,7 +30,7 @@
 
 | Epic | Titel | Stories | SP |
 |---|---|---|---|
-| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 9 | 28 |
+| EP-01 / KAN-4 | Fundament & Entwicklungsumgebung | 10 | 30 |
 | EP-02 / KAN-5 | Erfassung & Import | 5 | 17 |
 | EP-03 / KAN-6 | Frame-Aufbereitung & Qualitätsprüfung | 3 | 11 |
 | EP-04 / KAN-7 | Rekonstruktion: Kameraposen, Maßstab, Zusammenführung | 5 | 31 |
@@ -143,6 +143,18 @@ Als **Entwickler (PO + Claude Code)** möchte ich dass GPU-Stufen nie gleichzeit
 - [ ] Der Lock funktioniert über Container-Grenzen hinweg, z. B. als Lock-Datei in einem gemeinsam gemounteten Verzeichnis, und wird bei einem Absturz freigegeben (kein Deadlock).
 - [ ] Der Stufen-Runner aus KAN-21 nutzt den Lock für alle Stufen mit GPU-Bedarf.
 - [ ] Es gibt CPU-Tests für Lock, Warten und Freigabe nach Absturz.
+
+### US-066 / KAN-81: ffmpeg im Worker-Image, Image mit aktuellen Abhängigkeiten neu bauen
+
+`Task` · **Could** · 2 SP · M1 MVP „Video → Begehung“ · Labels: infra · Abhängig von: US-003 / KAN-18, US-018 / KAN-33
+
+Als **Entwickler (PO + Claude Code)** möchte ich `flight add` und `ingest` auch im Worker-Container ausführen, damit die Pipeline nicht vom Host abhängt.
+
+**Akzeptanzkriterien**
+
+- [ ] Das Laufzeit-Image `worker` enthält ffmpeg und ffprobe; `license-auditor` hat die Paketlizenz geprüft (externer Prozess, Image nur lokal).
+- [ ] Gegeben ein synthetisches Video, wenn `flight add` und `ingest` im Worker-Container laufen, dann entstehen dieselben Artefakte wie auf dem Host.
+- [ ] Das Image baut mit dem aktuellen `uv.lock`; PyTorch bleibt auf cu126, `make docker-check` ist grün.
 
 ### US-064 / KAN-79: Git LFS für Beispielclips
 
@@ -265,8 +277,8 @@ Als **Entwickler (PO + Claude Code)** möchte ich aus Keyframes Kameraposen und 
 
 **Akzeptanzkriterien**
 
-- [ ] COLMAP-Adapter (Container) mit Feature-Extraktion, sequenziellem Matching + Loop-Detection, Mapper.
-- [ ] Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen.
+- [ ] COLMAP-Adapter (Container) mit Feature-Extraktion, Matching (bis ca. 250 Keyframes erschöpfend, darüber sequenziell mit Loop-Detection; Grenze im Profil) und Mapper.
+- [ ] Registrierungsquote und mittlerer Reprojektionsfehler im Manifest; < 80 % registriert → Exit 20 mit Hinweisen, 80 bis < 90 % → Warnung und Hinweise im Manifest.
 - [ ] Läuft im Profil `low_vram_6gb` (Bildkante begrenzt).
 
 ### US-022 / KAN-37: AprilTag-Maßstab und Schwerkraftausrichtung
