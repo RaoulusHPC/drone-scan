@@ -17,6 +17,7 @@ import platform
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -30,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from dronescan import __version__
 from dronescan.common import gpu
 from dronescan.common.config import ProfileError, Settings, describe_validation_error, load_settings
+from dronescan.common.gpu_lock import GpuBusyError, stage_gpu_lock
 
 MANIFEST_NAME = "manifest.json"
 _HASH_CHUNK = 1024 * 1024
@@ -316,6 +318,19 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
             ExitCode.INPUT_MISSING, skipped=False, manifest=run.manifest(ExitCode.INPUT_MISSING)
         )
 
+    # Holds the GPU lock until the manifest is written; closed on every exit path.
+    with ExitStack() as exit_stack:
+        return _run_locked(stage, scan_dir, settings, force, run, exit_stack)
+
+
+def _run_locked(
+    stage: Stage,
+    scan_dir: Path,
+    settings: Settings,
+    force: bool,
+    run: _Run,
+    exit_stack: ExitStack,
+) -> StageResult:
     gpu_started = False
     code = ExitCode.OK
     ctx: StageContext | None = None
@@ -335,6 +350,10 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
             assert cached is not None
             return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=cached)
 
+        if stage.uses_gpu:
+            # Only a stage that really runs takes the lock (not cached ones). Held until the
+            # manifest is written, so the next GPU stage starts after this one fully finished.
+            exit_stack.enter_context(stage_gpu_lock(settings, scan_dir))
         run.out_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.unlink(missing_ok=True)  # a crash must not leave a valid cache behind
         log.info("stage_started", stage=stage.name, force=force)
@@ -359,6 +378,9 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
         code = ExitCode.ERROR
         run.error = f"Eingabe '{exc}' liegt außerhalb des Scan-Verzeichnisses."
         run.hints.append("Abhilfe: Dateien in das Scan-Verzeichnis importieren (Stufe 'import').")
+    except GpuBusyError as exc:
+        code, run.error = ExitCode.ERROR, exc.cause
+        run.hints.append(f"Abhilfe: {exc.remedy}")
     except gpu.GpuUnavailableError as exc:
         code, run.error = ExitCode.ERROR, exc.cause
         run.hints.append(f"Abhilfe: {exc.remedy}")

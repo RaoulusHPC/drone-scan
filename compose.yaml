@@ -1,7 +1,8 @@
 # drone-scan containers (KAN-18). GPU jobs never run in parallel (CLAUDE.md rule 2).
 # Start single jobs with `docker compose run --rm <service> ...`, NOT `docker compose up`:
-# worker and colmap reserve the same GPU and nothing here serializes them. Serializing the
-# pipeline stages (GPU lock) belongs to the stage runner. Both services are build-only for now.
+# worker and colmap reserve the same GPU. The stage runner serializes GPU stages with an flock on
+# workspace/.gpu.lock (KAN-80), which both services mount; keep ./workspace mounted in every
+# GPU service. Both services are build-only for now.
 # Default GPU: device 0 = GTX 1060 on the dev machine. The RTX 2070 SUPER (device 1) is
 # reserved for another project: DRONESCAN_GPU_DEVICE=1 may only be set with the PO's prior
 # consent for that run, and only if the card is free (`nvidia-smi`). Nothing enforces this here.

@@ -48,6 +48,20 @@ class GpuSettings(_Section):
     allow_fp16: bool = Field(
         description="fp16/AMP allowed; only used on sm_70+ (Pascal stays fp32, ADR-0010)."
     )
+    lock_file: Path | None = Field(
+        default=None,
+        description="Machine-wide GPU lock file (KAN-80). Default: '.gpu.lock' in the parent of "
+        "the scan directory, i.e. the mounted workspace/ shared by host, worker and colmap.",
+    )
+    lock_timeout_s: float = Field(
+        default=1800.0,
+        ge=0,
+        description="Seconds a GPU stage waits for another GPU job before it gives up (0 = fail "
+        "immediately).",
+    )
+    lock_poll_s: float = Field(
+        default=1.0, gt=0, description="Seconds between attempts to take the GPU lock."
+    )
 
 
 class IngestSettings(_Section):
