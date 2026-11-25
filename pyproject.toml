@@ -7,6 +7,8 @@ requires-python = ">=3.12,<3.13"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 dependencies = [
+    "numpy>=2.1",
+    "pyarrow>=18",
     "pydantic-settings>=2.6",
     "pyyaml>=6.0",
     "structlog>=24.4",
@@ -44,6 +46,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"] # ships no type information
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

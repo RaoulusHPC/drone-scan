@@ -4,6 +4,17 @@
 vram_limit_gb: 5.0
 gpu:
   allow_fp16: true # used only on sm_70+ (RTX 2060); Pascal stays fp32
+ingest: # start values from spike-01 (section 7)
+  analysis_fps: 6
+  analysis_edge_px: 480
+  keyframes_per_s: 2
+  min_rel_sharpness: 0.4
+  similarity_edge_px: 64
+  max_similarity: 0.99 # conservative: only (nearly) standing still counts as duplicate
+  max_image_edge_px: 1600
+  jpeg_qscale: 2
+  min_keyframes: 3
+  min_decoded_ratio: 0.9
 sfm:
   max_image_edge_px: 1600
 splat:
