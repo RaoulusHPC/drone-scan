@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Frame selection and geometry helpers for the spike (standard library only)."""
 
 from __future__ import annotations

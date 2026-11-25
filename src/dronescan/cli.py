@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Command line interface `drone-scan`.
 
 Pipeline stage commands (`ingest`, `sfm`, `recon`, ...) are added by their own stories

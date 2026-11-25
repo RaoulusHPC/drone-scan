@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Package structure and CLI entry point (KAN-16, AC 3)."""
 
 from __future__ import annotations

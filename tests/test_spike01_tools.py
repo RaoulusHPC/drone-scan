@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Spike KAN-19 tools (COLMAP + gsplat on the GTX 1060): pure-Python helpers.
 
 Synthetic data only: no real recordings in tests (CLAUDE.md rule 3).

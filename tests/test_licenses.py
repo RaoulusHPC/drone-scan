@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """License gate (KAN-23, ADR-0012): allow-/denylist, NC marking, models.lock, copyleft imports."""
 
 from __future__ import annotations

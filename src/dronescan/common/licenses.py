@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """License gate (KAN-23, ADR-0007, ADR-0012): checks Python and npm dependencies, models.lock
 and imports in src/ against licenses/allowlist.yaml and licenses/denylist.yaml.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Image quality metrics for the spike (PyTorch): PSNR and SSIM on [H, W, 3] images in 0..1.
 
 Own implementation (gaussian window 11, sigma 1.5, SSIM per Wang et al., IEEE TIP 2004), so the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Central configuration: YAML profiles plus environment overrides.
 
 Priority (highest first):

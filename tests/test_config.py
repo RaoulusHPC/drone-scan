@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Central configuration with YAML profiles and env overrides (KAN-20, AC 1 and AC 3)."""
 
 from __future__ import annotations

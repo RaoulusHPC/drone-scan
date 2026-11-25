@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Scan creation and flight import (KAN-28, US-013).
 
 All videos are synthetic (ffmpeg ``testsrc``); private PO clips are never used.

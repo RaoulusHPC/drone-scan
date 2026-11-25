@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """VRAM limit and precision helpers for GPU stages (KAN-20, AC 2).
 
 CPU tests use a fake `torch` module; the `gpu` test uses the real one.

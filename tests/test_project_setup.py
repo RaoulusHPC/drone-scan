@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Project setup artefacts required by `make setup` (KAN-16, AC 1 and AC 2)."""
 
 from __future__ import annotations

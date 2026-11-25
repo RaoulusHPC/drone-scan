@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the PreToolUse hook that blocks commands to real drones (KAN-22, AC 2).
 
 Blocked command strings are assembled from fragments so that the hook does not
