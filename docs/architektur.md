@@ -151,7 +151,7 @@ drone-scan <stufe> --scan <scan_dir> [--profile low_vram_6gb] [--force]
   liest:     definierte Eingabeartefakte
   schreibt:  <scan_dir>/<stufe>/...  +  <scan_dir>/<stufe>/manifest.json
   manifest:  {stage, version, inputs:{pfad: sha256}, params, tools:{name: version},
-              started, finished, peak_vram_mb, status, warnings[], hints[]}
+              started, finished, peak_vram_mb, status, warnings[], hints[], metrics{}}
   Exitcodes: 0 ok · 10 Eingabe fehlt · 20 Qualität unzureichend (mit hints) · 30 OOM · 1 sonstiger Fehler
 ```
 
@@ -175,10 +175,10 @@ Umsetzung Frame-Extraktion (KAN-33): `drone-scan ingest --scan workspace/<id>` d
 
 Umsetzung Kameraposen (KAN-36): `drone-scan sfm --scan workspace/<id>` läuft auf dem Host und startet je COLMAP-Befehl einen Container (`docker run`, Image `drone-scan/colmap:4.2.1`, ohne Netzwerk, als aufrufender Benutzer, `ingest/` nur lesend, GPU `DRONESCAN_GPU_DEVICE`, Standard 0). CPU-Schritte (Vocabulary Tree, Mapper) bekommen keine GPU.
 - **Ablauf:** SIFT (GPU) → Matching (GPU) → Mapper (CPU). Alle Flüge werden gemeinsam rekonstruiert, mit einer Kamera je Flug; Bildnamen im Modell: `f01/frames/000001.jpg`. Getrennte Teilmodelle zusammenzuführen ist KAN-38.
-- **Matching:** bis `sfm.exhaustive_max_keyframes` (250) Keyframes werden alle Paare verglichen, darüber sequentiell mit Loop-Detection (PO-Entscheidung 25.11.2026). Den Vocabulary Tree baut `vocab_tree_builder` je Scan aus den eigenen SIFT-Merkmalen: kein Download, keine fremden Gewichte.
+- **Matching:** bis `sfm.exhaustive_max_keyframes` (250) Keyframes werden alle Paare verglichen, darüber sequentiell mit Loop-Detection (PO-Entscheidung 25.11.2026). Lässt sich der Vocabulary Tree nicht bauen (zu wenige Merkmale), läuft das Matching mit Warnung ohne Loop-Detection. Die GPU-Sperre gilt auch während des Mappers (CPU); bei langen Scans kann das `gpu.lock_timeout_s` anderer Stufen überschreiten. Den Vocabulary Tree baut `vocab_tree_builder` je Scan aus den eigenen SIFT-Merkmalen: kein Download, keine fremden Gewichte.
 - **Ergebnis:** `sfm/colmap/sparse/0` ist das größte Teilmodell im COLMAP-Textformat, `sfm/colmap/models/` enthält alle Teilmodelle (binär), `sfm/colmap/logs/` die COLMAP-Ausgaben. Im Manifest stehen unter `metrics` u. a. Registrierungsquote (Bilder im größten Teilmodell / Keyframes), mittlerer Reprojektionsfehler, Teilmodellgrößen, Anzahl je Flug und Laufzeiten.
-- **Schwellen:** unter `min_registration_ratio` (80 %) Exit 20 mit Hinweisen und ohne `sparse/0`, damit keine Stufe auf einem Bruchstück aufbaut. Unter `target_registration_ratio` (90 %, Q-3) läuft die Pipeline mit Warnung weiter.
-- **VRAM:** COLMAP unterliegt nicht der PyTorch-Grenze. Bildkante, Merkmale und Matcher-Kapazität stehen im Profil, der Peak des COLMAP-Prozesses wird mit `nvidia-smi` gemessen. COLMAP meldet fehlenden Grafikspeicher teils nur im Log (Code 0), der Adapter wertet deshalb das Log aus, wiederholt einmal mit `oom_retry_*` und endet sonst mit Exit 30.
+- **Schwellen:** unter `min_registration_ratio` (80 %) Exit 20 mit Hinweisen und ohne `sparse/0`, damit keine Stufe auf einem Bruchstück aufbaut. Folgestufen prüfen zusätzlich, dass `sfm/manifest.json` den Status `ok` hat: Bei Exit 10 bleiben ältere Dateien liegen. Unter `target_registration_ratio` (90 %, Q-3) läuft die Pipeline mit Warnung weiter.
+- **VRAM:** COLMAP unterliegt nicht der PyTorch-Grenze. Bildkante, Merkmale und Matcher-Kapazität stehen im Profil, der Peak des COLMAP-Prozesses wird mit `nvidia-smi` abgetastet (alle 0,25 s, also eine untere Schranke). COLMAP meldet fehlenden Grafikspeicher teils nur im Log (Code 0), der Adapter wertet deshalb das Log aus, wiederholt einmal mit `oom_retry_*` und endet sonst mit Exit 30.
 
 ### 5.3 Datenmodell / Artefakt-Layout
 

@@ -128,7 +128,7 @@ class Manifest(BaseModel):
     error: str | None = None
     warnings: list[str] = []
     hints: list[str] = []
-    metrics: dict[str, Any] = {}  # measured results of the stage (numbers, no image content)
+    metrics: dict[str, Any] = {}  # measured results of the stage (no image content)
 
 
 @dataclass
@@ -500,6 +500,8 @@ def register_stage(
             typer.echo(f"{name}: {manifest.error}", err=True)
         else:
             typer.echo(f"{name}: fertig.")
+        for warning in manifest.warnings:
+            typer.echo(f"Warnung: {warning}", err=True)
         for hint in manifest.hints:
             typer.echo(f"Hinweis: {hint}", err=failed)
         raise typer.Exit(code=int(result.exit_code))

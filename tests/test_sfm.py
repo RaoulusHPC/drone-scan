@@ -123,7 +123,7 @@ def sfm(scan_dir: Path, settings: Settings | None = None, force: bool = False) -
 # ---------- fake docker ----------
 
 FAKE_DOCKER = """#!{python}
-import csv, json, struct, sys
+import csv, json, struct, sys, time
 from pathlib import Path
 
 state = Path({state!r})
@@ -160,6 +160,8 @@ for failure in config["failures"]:
         failure["times"] -= 1
         (state / "config.json").write_text(json.dumps(config))
         print(failure["output"], file=sys.stderr)
+        sys.stderr.flush()
+        time.sleep(failure.get("hang_s", 0))
         sys.exit(failure["code"])
 
 if command == "feature_extractor":
@@ -168,7 +170,8 @@ if command == "feature_extractor":
 elif command == "vocab_tree_builder":
     host(options["--vocab_tree_path"]).write_text("tree")
 elif command == "sequential_matcher":
-    assert host(options["--SequentialMatching.vocab_tree_path"]).is_file()
+    if "--SequentialMatching.loop_detection" in options:
+        assert host(options["--SequentialMatching.vocab_tree_path"]).is_file()
 elif command == "mapper":
     names = (work / "image_list.txt").read_text().split()
     if not config["models"]:
@@ -338,7 +341,8 @@ def test_container_is_offline_unprivileged_and_sees_one_gpu(scan: Path, docker: 
     and only GPU commands get a GPU (index 0 = GTX 1060).
     """
     docker.models(10)
-    sfm(scan)
+    assert sfm(scan).exit_code is ExitCode.OK
+    assert len(docker.calls()) == 4
 
     for call in docker.calls():
         assert call[call.index("--network") + 1] == "none"
@@ -416,8 +420,8 @@ def test_several_flights_are_reconstructed_together(tmp_path: Path, docker: Fake
 
 def test_unchanged_scan_is_skipped_and_force_reruns(scan: Path, docker: FakeDocker) -> None:
     """Given a successful run,
-    When the stage runs again without changes, with --force, or with a rebuilt image,
-    Then it is skipped, recomputed (old results replaced), and recomputed.
+    When the stage runs again without changes or with --force,
+    Then it is skipped, or recomputed with the old results replaced.
     """
     docker.models(10)
     sfm(scan)
@@ -428,9 +432,88 @@ def test_unchanged_scan_is_skipped_and_force_reruns(scan: Path, docker: FakeDock
     assert not sfm(scan, force=True).skipped
     assert not stale.exists()
 
-    docker.config["image_id"] = "2"
+
+def test_stopped_docker_keeps_a_valid_result(scan: Path, docker: FakeDocker) -> None:
+    """Given a valid result,
+    When the stage runs again while docker or the image is not available,
+    Then it is skipped and the result stays.
+    """
+    docker.models(10)
+    sfm(scan)
+    docker.config["image"] = False
     docker.save()
-    assert not sfm(scan).skipped
+
+    assert sfm(scan).skipped
+    assert (scan / "sfm" / "colmap" / "sparse" / "0" / "images.txt").is_file()
+
+
+def test_failed_vocab_tree_falls_back_with_a_warning(scan: Path, docker: FakeDocker) -> None:
+    """Given a scan with too few features for a vocabulary tree,
+    When it has more keyframes than the exhaustive limit,
+    Then matching is sequential without loop detection and the manifest warns.
+    """
+    docker.models(10)
+    docker.fail("vocab_tree_builder", "Number of descriptors is too small")
+
+    result = sfm(scan, with_sfm(exhaustive_max_keyframes=5))
+
+    assert result.exit_code is ExitCode.OK
+    assert "--SequentialMatching.loop_detection" not in docker.options("sequential_matcher")
+    assert result.manifest.metrics["matcher"] == "sequential"
+    assert any("Loop-Detection" in warning for warning in result.manifest.warnings)
+
+
+def test_hanging_vocab_tree_is_stopped(scan: Path, docker: FakeDocker) -> None:
+    """Given a vocabulary tree builder that hangs (COLMAP 4.2.1 does so without features),
+    When the timeout of the profile is over,
+    Then its container is killed and matching continues without loop detection.
+    """
+    docker.models(10)
+    docker.fail("vocab_tree_builder", "", code=0)
+    docker.config["failures"][0]["hang_s"] = 30
+    docker.save()
+
+    result = sfm(scan, with_sfm(exhaustive_max_keyframes=5, loop_vocab_timeout_s=2))
+
+    assert result.exit_code is ExitCode.OK
+    assert result.manifest.metrics["matcher"] == "sequential"
+    (builder,) = [call for call in docker.calls() if "vocab_tree_builder" in call]
+    assert docker.calls("kill") == [["kill", builder[builder.index("--name") + 1]]]
+
+
+def test_oom_in_sequential_matching_is_retried(scan: Path, docker: FakeDocker) -> None:
+    """Given a sequential matcher without enough VRAM at first,
+    When the stage runs,
+    Then features, vocabulary tree and matching are repeated once.
+    """
+    docker.models(10)
+    docker.fail("sequential_matcher", "out of memory", code=0)
+
+    result = sfm(scan, with_sfm(exhaustive_max_keyframes=5))
+
+    assert result.exit_code is ExitCode.OK
+    steps = ["feature_extractor", "vocab_tree_builder", "sequential_matcher"]
+    assert docker.commands()[:6] == steps * 2
+
+
+def test_unwritable_output_exits_1_with_a_remedy(
+    scan: Path, docker: FakeDocker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given old results that cannot be removed,
+    When the stage runs,
+    Then it exits 1 and names disk space and permissions.
+    """
+    (scan / "sfm" / "colmap").mkdir(parents=True)
+
+    def denied(path: Path) -> None:
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr("dronescan.sfm.stage.shutil.rmtree", denied)
+
+    result = sfm(scan)
+
+    assert result.exit_code is ExitCode.ERROR
+    assert any("Schreibrechte" in hint for hint in result.manifest.hints)
 
 
 def test_cli_registers_the_stage(
@@ -526,7 +609,6 @@ def test_missing_docker_exits_1(scan: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result.exit_code is ExitCode.ERROR
     assert "Docker" in str(result.manifest.error)
-    assert result.manifest.tools["colmap_image_id"] == "missing"
 
 
 def test_container_start_failure_exits_1(scan: Path, docker: FakeDocker) -> None:
@@ -590,6 +672,7 @@ def test_gpu_oom_is_retried_once_with_smaller_values(
     matching = docker.options("exhaustive_matcher", occurrence=-1)
     assert matching["--FeatureMatching.max_num_matches"] == str(cfg.oom_retry_num_matches)
     assert result.manifest.metrics["oom_retry"] is True
+    assert result.manifest.metrics["limits"]["image_edge_px"] == edge
     logs = [log.name for log in (scan / "sfm" / "colmap" / "logs").iterdir()]
     assert len([name for name in logs if name.endswith(f"{command}.log")]) == 2
     assert any("Grafikspeicher" in warning for warning in result.manifest.warnings)
@@ -628,7 +711,7 @@ def test_interrupt_stops_the_container(
 ) -> None:
     """Given a running COLMAP container,
     When the user presses Ctrl+C,
-    Then exactly this container is killed (it must not keep the GPU busy).
+    Then a container of the adapter is killed (it must not keep the GPU busy).
     """
     original = subprocess.Popen.wait
     interrupted = False
@@ -649,6 +732,37 @@ def test_interrupt_stops_the_container(
     killed = docker.calls("kill")
     assert len(killed) == 1
     assert killed[0][1].startswith("dronescan-colmap-")
+
+
+def test_interrupted_stage_writes_an_error_manifest(
+    scan: Path, docker: FakeDocker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a stage whose mapper is interrupted with Ctrl+C,
+    When run_stage handles it,
+    Then the manifest says error, there is no sparse/0 and the started container is killed.
+    """
+    docker.models(10)
+    original = subprocess.Popen.wait
+    interrupted = False
+
+    def wait(self: subprocess.Popen[bytes], timeout: float | None = None) -> int:
+        nonlocal interrupted
+        if not interrupted and "mapper" in list(self.args):  # type: ignore[arg-type]
+            interrupted = True
+            original(self, timeout)  # the fake has recorded its call
+            raise KeyboardInterrupt
+        return original(self, timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+
+    with pytest.raises(KeyboardInterrupt):
+        sfm(scan)
+
+    manifest = Manifest.model_validate_json((scan / "sfm" / "manifest.json").read_text())
+    assert manifest.status == "error"
+    assert not (scan / "sfm" / "colmap" / "sparse").exists()
+    (mapper,) = [call for call in docker.calls() if "mapper" in call]
+    assert docker.calls("kill") == [["kill", mapper[mapper.index("--name") + 1]]]
 
 
 @pytest.mark.parametrize(("script", "code"), [("exit 0", 0), ("exit 3", 3)])
@@ -682,7 +796,8 @@ def test_every_container_runs_under_the_watchdog(scan: Path, docker: FakeDocker)
     Then each has an open stdin and the watchdog as its command.
     """
     docker.models(10)
-    sfm(scan)
+    assert sfm(scan).exit_code is ExitCode.OK
+    assert len(docker.calls()) == 4
 
     for call in docker.calls():
         assert "--interactive" in call and WATCHDOG in call
@@ -1029,6 +1144,7 @@ def test_unrelated_images_exit_20(tmp_path: Path) -> None:
     result = sfm(scan_dir)
 
     assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT, result.manifest.error
+    assert result.manifest.metrics["registration_ratio"] == 0.0
     assert result.manifest.hints
 
 

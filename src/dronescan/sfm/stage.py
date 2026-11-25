@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -30,7 +30,7 @@ from dronescan.common.stage import (
     StageError,
     load_manifest,
 )
-from dronescan.ingest.stage import FRAMES_DIR, FRAMES_TABLE, NO_FLIGHT_HINT, IngestStage
+from dronescan.ingest.stage import FRAMES_DIR, FRAMES_TABLE, NO_FLIGHT_HINT, WRITE_HINT, IngestStage
 from dronescan.sfm.colmap import (
     COLMAP_IMAGE,
     Colmap,
@@ -114,14 +114,20 @@ class SfmStage(Stage):
         return settings.sfm.model_dump()
 
     def tool_versions(self) -> dict[str, str]:
-        return {"colmap": COLMAP_IMAGE, "colmap_image_id": image_id()}
+        # Only the tag (= COLMAP version): a stopped docker must not invalidate a valid result.
+        return {"colmap": COLMAP_IMAGE}
 
     def run(self, ctx: StageContext) -> None:
         work = ctx.out_dir / COLMAP_DIR
-        shutil.rmtree(work, ignore_errors=True)
-        (work / _MODELS_DIR).mkdir(parents=True)
         images = _keyframes(ctx.inputs)
-        (work / _IMAGE_LIST).write_text("\n".join(images) + "\n", encoding="utf-8")
+        try:
+            if work.exists():
+                shutil.rmtree(work)
+            (work / _MODELS_DIR).mkdir(parents=True)
+            (work / _IMAGE_LIST).write_text("\n".join(images) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise StageError("Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]) from exc
+        ctx.metrics["colmap_image_id"] = image_id()
         colmap = Colmap(
             mounts=[
                 Mount(ctx.scan_dir / IngestStage.name, "/ingest", read_only=True),
@@ -174,6 +180,7 @@ class _Reconstruction:
     def _features_and_matches(self) -> None:
         cfg = self._cfg
         limits = _Limits(cfg.max_image_edge_px, cfg.max_num_features, cfg.max_num_matches)
+        self._ctx.metrics["limits"] = asdict(limits)
         try:
             self._extract(limits)
             self._match(limits)
@@ -185,11 +192,13 @@ class _Reconstruction:
             self._ctx.metrics["oom_retry"] = True
             self._ctx.warn(
                 "Der Grafikspeicher reichte nicht, zweiter Versuch mit kleineren Werten "
-                f"({edge} px, {count} Merkmale je Bild)."
+                f"({edge} px, {count} Merkmale je Bild). Für die volle Qualität andere "
+                "GPU-Programme schließen und mit --force wiederholen."
             )
             for leftover in self._work.glob(f"{_DATABASE}*"):
                 leftover.unlink()
             reduced = _Limits(edge, count, matches)
+            self._ctx.metrics["limits"] = asdict(reduced)
             self._extract(reduced)
             self._match(reduced)
 
@@ -217,15 +226,15 @@ class _Reconstruction:
         if self._exhaustive:
             result = self._colmap.run("exhaustive_matcher", options, gpu=True)
         else:
-            self._build_vocab_tree()
             options["SequentialMatching.overlap"] = self._cfg.sequential_overlap
-            options["SequentialMatching.loop_detection"] = 1
-            options["SequentialMatching.vocab_tree_path"] = f"/sfm/{_VOCAB_TREE}"
+            if self._build_vocab_tree():
+                options["SequentialMatching.loop_detection"] = 1
+                options["SequentialMatching.vocab_tree_path"] = f"/sfm/{_VOCAB_TREE}"
             result = self._colmap.run("sequential_matcher", options, gpu=True)
             (self._work / _VOCAB_TREE).unlink(missing_ok=True)
         self._record("matching", result)
 
-    def _build_vocab_tree(self) -> None:
+    def _build_vocab_tree(self) -> bool:
         """Vocabulary tree from the scan's own features: no download, no foreign weights."""
         options: dict[str, str | int | float] = {
             "database_path": f"/sfm/{_DATABASE}",
@@ -235,7 +244,23 @@ class _Reconstruction:
             "num_rounds": self._cfg.loop_vocab_rounds,
             "max_num_descriptors": self._cfg.loop_vocab_max_descriptors,
         }
-        self._record("vocab_tree", self._colmap.run("vocab_tree_builder", options))
+        try:
+            result = self._colmap.run(
+                "vocab_tree_builder", options, timeout_s=self._cfg.loop_vocab_timeout_s
+            )
+            self._record("vocab_tree", result)
+        except ColmapUnavailableError:
+            raise
+        except ColmapError:
+            # Too few features (texture-poor scan); COLMAP 4.2.1 may even hang then. Whether the
+            # model is good enough is decided by the registration thresholds.
+            self._ctx.metrics["matcher"] = "sequential"
+            self._ctx.warn(
+                "Die Erkennung bereits besuchter Orte (Loop-Detection) war nicht möglich, "
+                "vermutlich wegen zu weniger Bildmerkmale. Das Modell kann auseinanderfallen."
+            )
+            return False
+        return True
 
     def _map(self) -> None:
         options: dict[str, str | int | float] = {
@@ -268,7 +293,7 @@ class _Reconstruction:
         flights = self._per_flight(report)
         self._ctx.metrics.update(
             registered_images=registered,
-            registration_ratio=round(ratio, 4),
+            registration_ratio=math.floor(ratio * 10000 + 1e-9) / 10000,
             mean_reprojection_error_px=round(report.mean_reprojection_error_px, 4),
             points=report.points,
             flights=flights,

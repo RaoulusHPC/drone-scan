@@ -52,6 +52,7 @@ sfm:
   loop_vocab_iterations: 5
   loop_vocab_rounds: 1
   loop_vocab_max_descriptors: 100000
+  loop_vocab_timeout_s: 60
   min_registration_ratio: 0.8
   target_registration_ratio: 0.9
   oom_retry_image_edge_px: 400

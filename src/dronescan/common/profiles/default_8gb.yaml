@@ -29,6 +29,7 @@ sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   loop_vocab_iterations: 10
   loop_vocab_rounds: 1
   loop_vocab_max_descriptors: 200000
+  loop_vocab_timeout_s: 300 # measured: 27 s for 300 images; hangs without features
   min_registration_ratio: 0.8 # below: exit 20
   target_registration_ratio: 0.9 # Q-3; below: warning
   oom_retry_image_edge_px: 1600

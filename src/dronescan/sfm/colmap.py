@@ -125,11 +125,16 @@ class _VramSampler:
 
 
 def image_id() -> str:
-    """Id of the local COLMAP image (changes with every rebuild) or ``missing``."""
+    """Id of the local COLMAP image or ``missing`` (also if docker does not respond)."""
     if shutil.which("docker") is None:
         return "missing"
     command = ["docker", "image", "inspect", "--format", "{{.Id}}", COLMAP_IMAGE]
-    proc = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        proc = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=_TOOL_TIMEOUT_S
+        )
+    except subprocess.TimeoutExpired:
+        return "missing"
     return proc.stdout.strip() if proc.returncode == 0 else "missing"
 
 
@@ -144,8 +149,14 @@ class Colmap:
         self.peak_vram_mib: float | None = None  # over all commands, also failed ones
 
     def run(
-        self, command: str, options: Mapping[str, str | int | float], *, gpu: bool = False
+        self,
+        command: str,
+        options: Mapping[str, str | int | float],
+        *,
+        gpu: bool = False,
+        timeout_s: float | None = None,
     ) -> StepResult:
+        """Run one command; after ``timeout_s`` it is stopped and ColmapError is raised."""
         if shutil.which("docker") is None:
             raise ColmapUnavailableError("Docker ist nicht installiert.")
         if image_id() == "missing":
@@ -170,10 +181,10 @@ class Colmap:
             try:
                 if gpu:
                     with sampler:
-                        proc.wait()
+                        proc.wait(timeout_s)
                 else:
-                    proc.wait()
-            except BaseException:
+                    proc.wait(timeout_s)
+            except BaseException as exc:
                 # Killing only the docker client would leave the container on the GPU.
                 with suppress(subprocess.TimeoutExpired):  # the watchdog ends the container anyway
                     subprocess.run(
@@ -184,6 +195,9 @@ class Colmap:
                     )
                 proc.kill()
                 proc.wait()
+                if isinstance(exc, subprocess.TimeoutExpired):
+                    log.error("colmap_timeout", command=command, timeout_s=timeout_s)
+                    raise ColmapError(f"COLMAP antwortet nicht ({command}).") from exc
                 raise
             finally:
                 if proc.stdin is not None:

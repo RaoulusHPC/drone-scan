@@ -117,6 +117,9 @@ class SfmSettings(_Section):
     loop_vocab_max_descriptors: PositiveInt = Field(
         description="Descriptors sampled for building the tree (CPU time, RAM)."
     )
+    loop_vocab_timeout_s: PositiveInt = Field(
+        description="Give up building the tree after this time and match without loop detection."
+    )
     min_registration_ratio: float = Field(
         gt=0, le=1, description="Share of keyframes in the largest model; below it exit 20."
     )
