@@ -56,6 +56,7 @@ sfm:
   target_registration_ratio: 0.9
   oom_retry_image_edge_px: 400
   oom_retry_num_features: 1000
+  oom_retry_num_matches: 1000
 splat:
   max_iterations: 1000
   max_gaussians: 10000

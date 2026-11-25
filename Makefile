@@ -46,7 +46,7 @@ check: lint typecheck test license-gate ## Run before every PR: lint, types, CPU
 
 test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
 	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
-	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) \
+	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) DRONESCAN_GPU_DEVICE=$(GPU_DEVICES) \
 		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
 
 test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)

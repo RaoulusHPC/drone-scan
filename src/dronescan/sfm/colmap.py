@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -26,8 +27,11 @@ import structlog
 COLMAP_IMAGE = "drone-scan/colmap:4.2.1"  # same tag as in compose.yaml (checked by a test)
 _SAMPLE_INTERVAL_S = 0.25
 _DOCKER_FAILED = 125  # `docker run` itself failed, the command never started
+_TOOL_TIMEOUT_S = 10  # a hanging helper must not block the stage while it holds the GPU lock
 _KILLED = 137  # SIGKILL, usually the kernel's out-of-memory killer
-_GPU_OOM = re.compile(r"not enough gpu memory|out of memory", re.IGNORECASE)
+_GPU_OOM = re.compile(
+    r"not enough gpu memory|out[ _]of[ _]memory|cudaErrorMemoryAllocation", re.IGNORECASE
+)
 _HOST_OOM = "std::bad_alloc"
 # Runs in the container: stdin is a pipe from the runner. If the runner dies for any reason
 # (even SIGKILL), the pipe closes and COLMAP is killed. Otherwise it would keep the GPU busy
@@ -71,7 +75,6 @@ class Mount:
 @dataclass(frozen=True)
 class StepResult:
     seconds: float
-    peak_vram_mib: float | None  # None: CPU command or not measurable
 
 
 class _VramSampler:
@@ -85,7 +88,16 @@ class _VramSampler:
         self.peak: float | None = None
 
     def _sample(self) -> None:
-        proc = subprocess.run(self._command, capture_output=True, text=True, check=False)
+        try:
+            proc = subprocess.run(
+                self._command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_TOOL_TIMEOUT_S,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return  # a failed query under load must not end the sampling
         for line in proc.stdout.splitlines():  # no output if the query failed
             memory, _, name = line.partition(",")
             if Path(name.strip()).name == "colmap" and memory.strip().isdigit():
@@ -128,6 +140,8 @@ class Colmap:
         self._mounts = mounts
         self._gpu_device = gpu_device
         self._log_dir = log_dir
+        self._steps = 0
+        self.peak_vram_mib: float | None = None  # over all commands, also failed ones
 
     def run(
         self, command: str, options: Mapping[str, str | int | float], *, gpu: bool = False
@@ -145,7 +159,8 @@ class Colmap:
             arguments += [f"--{name}", str(value)]
 
         self._log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = self._log_dir / f"{command}.log"
+        self._steps += 1  # numbered: a retry must not overwrite the log of the first attempt
+        log_file = self._log_dir / f"{self._steps:02d}_{command}.log"
         started = time.monotonic()
         sampler = _VramSampler(self._gpu_device)
         with log_file.open("w", encoding="utf-8") as output:
@@ -160,14 +175,22 @@ class Colmap:
                     proc.wait()
             except BaseException:
                 # Killing only the docker client would leave the container on the GPU.
-                subprocess.run(["docker", "kill", container], capture_output=True, check=False)
+                with suppress(subprocess.TimeoutExpired):  # the watchdog ends the container anyway
+                    subprocess.run(
+                        ["docker", "kill", container],
+                        capture_output=True,
+                        check=False,
+                        timeout=_TOOL_TIMEOUT_S,
+                    )
                 proc.kill()
                 proc.wait()
                 raise
             finally:
                 if proc.stdin is not None:
                     proc.stdin.close()
-        result = StepResult(time.monotonic() - started, sampler.peak)
+                if sampler.peak is not None:
+                    self.peak_vram_mib = max(sampler.peak, self.peak_vram_mib or 0.0)
+        result = StepResult(time.monotonic() - started)
         self._check(command, proc.returncode, log_file.read_text("utf-8", errors="replace"), gpu)
         log.info("colmap_finished", command=command, seconds=round(result.seconds, 1))
         return result
@@ -186,6 +209,9 @@ class Colmap:
         arguments += ["--network", "none", "--user", f"{os.getuid()}:{os.getgid()}"]
         if gpu:
             arguments += ["--runtime", "nvidia", "--gpus", f"device={self._gpu_device}"]
+            arguments += ["--env", "CUDA_DEVICE_ORDER=PCI_BUS_ID"]
+        else:  # the image asks for all GPUs if nvidia is the default runtime of the host
+            arguments += ["--env", "NVIDIA_VISIBLE_DEVICES=void"]
         for mount in self._mounts:
             arguments += ["--mount", mount.argument()]
         return [*arguments, COLMAP_IMAGE]

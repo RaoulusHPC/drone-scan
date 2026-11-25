@@ -16,7 +16,8 @@ worktrees and of where a scan lives. Containers mount the same host directory
 * The descriptor is close-on-exec (kept deliberately). Children such as COLMAP or
   ``docker run`` therefore do not inherit it. If the runner is killed while such a
   child keeps running, the lock is gone although the child still uses the GPU; the
-  next job may then overlap with it. Stop leftover COLMAP/docker processes manually
+  next job may then overlap with it. The COLMAP adapter (`dronescan.sfm.colmap`) ends its
+  containers itself in that case; stop other leftover docker processes manually
   after killing a runner (see docs/fehlercodes.md).
 * No silent fallback: if the lock file cannot be used, the stage fails with a message.
 """

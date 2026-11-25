@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+from dronescan.common.config import load_settings
+from dronescan.common.gpu_lock import stage_gpu_lock
 
 SITL_ENV_VAR = "DRONESCAN_SITL"
 
@@ -41,7 +45,25 @@ def isolate_dronescan_env(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
             monkeypatch.delenv(name)
 
 
+@pytest.fixture(scope="session")
+def gpu_session_lock() -> Iterator[None]:
+    """Hold the real machine-wide GPU lock while GPU tests run (CLAUDE.md rule 2).
+
+    The stages under test lock a file in their temporary state directory, so they cannot
+    deadlock with it.
+    """
+    with stage_gpu_lock(load_settings()):
+        yield
+
+
 @pytest.fixture(autouse=True)
-def isolate_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point XDG_STATE_HOME at a temp dir: tests must never touch the real GPU lock (KAN-80)."""
+def isolate_state_dir(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point XDG_STATE_HOME at a temp dir: tests must never touch the real GPU lock (KAN-80).
+
+    Exception: the session as a whole holds the real lock while it runs `gpu` tests.
+    """
+    if request.node.get_closest_marker("gpu"):
+        request.getfixturevalue("gpu_session_lock")  # before the path is redirected
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))

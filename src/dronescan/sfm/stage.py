@@ -138,10 +138,12 @@ class SfmStage(Stage):
             raise OutOfMemoryError(str(exc), [GPU_OOM_HINT]) from exc
         except ColmapError as exc:
             raise StageError(str(exc), [COLMAP_HINT]) from exc
+        finally:
+            ctx.record_peak_vram(colmap.peak_vram_mib)
 
 
 class _Reconstruction:
-    """One run of the COLMAP steps; collects metrics and peak VRAM in the stage context."""
+    """One run of the COLMAP steps; collects metrics in the stage context."""
 
     def __init__(self, ctx: StageContext, colmap: Colmap, work: Path, images: list[str]) -> None:
         self._ctx = ctx
@@ -156,6 +158,7 @@ class _Reconstruction:
         self._ctx.metrics["keyframes"] = len(self._images)
         self._ctx.metrics["matcher"] = "exhaustive" if self._exhaustive else "sequential+loop"
         self._ctx.metrics["seconds"] = self._seconds
+        self._ctx.metrics["oom_retry"] = False
         self._features_and_matches()
         self._map()
         models = list_models(self._work / _MODELS_DIR)
@@ -167,7 +170,6 @@ class _Reconstruction:
 
     def _record(self, step: str, result: StepResult) -> None:
         self._seconds[step] = round(self._seconds.get(step, 0.0) + result.seconds, 1)
-        self._ctx.record_peak_vram(result.peak_vram_mib)
 
     def _features_and_matches(self) -> None:
         cfg = self._cfg
@@ -178,14 +180,16 @@ class _Reconstruction:
         except ColmapOutOfMemoryError:
             edge = min(cfg.oom_retry_image_edge_px, cfg.max_image_edge_px)
             count = min(cfg.oom_retry_num_features, cfg.max_num_features)
+            matches = min(cfg.oom_retry_num_matches, cfg.max_num_matches)
             log.warning("sfm_oom_retry", image_edge_px=edge, num_features=count)
+            self._ctx.metrics["oom_retry"] = True
             self._ctx.warn(
                 "Der Grafikspeicher reichte nicht, zweiter Versuch mit kleineren Werten "
                 f"({edge} px, {count} Merkmale je Bild)."
             )
             for leftover in self._work.glob(f"{_DATABASE}*"):
                 leftover.unlink()
-            reduced = _Limits(edge, count, count)
+            reduced = _Limits(edge, count, matches)
             self._extract(reduced)
             self._match(reduced)
 

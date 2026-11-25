@@ -127,7 +127,10 @@ class SfmSettings(_Section):
         description="Longest image edge for the second attempt after running out of VRAM."
     )
     oom_retry_num_features: PositiveInt = Field(
-        description="Features and match limit for the second attempt."
+        description="SIFT features per image for the second attempt."
+    )
+    oom_retry_num_matches: PositiveInt = Field(
+        description="Match capacity for the second attempt (SIFT may exceed the feature limit)."
     )
 
     @model_validator(mode="after")
@@ -136,6 +139,16 @@ class SfmSettings(_Section):
             raise ValueError("min_registration_ratio must not exceed target_registration_ratio")
         if self.max_num_matches < self.max_num_features:
             raise ValueError("max_num_matches must not be smaller than max_num_features")
+        if (
+            self.oom_retry_image_edge_px >= self.max_image_edge_px
+            or self.oom_retry_num_features >= self.max_num_features
+            or self.oom_retry_num_matches >= self.max_num_matches
+        ):
+            raise ValueError("oom_retry_* values must be smaller than the normal ones")
+        if self.oom_retry_num_matches < self.oom_retry_num_features:
+            raise ValueError(
+                "oom_retry_num_matches must not be smaller than oom_retry_num_features"
+            )
         return self
 
 

@@ -33,6 +33,7 @@ sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   target_registration_ratio: 0.9 # Q-3; below: warning
   oom_retry_image_edge_px: 1600
   oom_retry_num_features: 4096
+  oom_retry_num_matches: 8192
 splat:
   max_iterations: 30000
   max_gaussians: 2500000

@@ -350,6 +350,9 @@ def test_container_is_offline_unprivileged_and_sees_one_gpu(scan: Path, docker: 
         assert ("--gpus" in call) is gpu
         if gpu:
             assert call[call.index("--gpus") + 1] == "device=0"
+            assert "CUDA_DEVICE_ORDER=PCI_BUS_ID" in call
+        else:
+            assert "NVIDIA_VISIBLE_DEVICES=void" in call
 
 
 def test_gpu_device_uses_the_same_variable_as_compose(
@@ -585,7 +588,10 @@ def test_gpu_oom_is_retried_once_with_smaller_values(
     assert second["--FeatureExtraction.max_image_size"] == str(edge)
     assert second["--SiftExtraction.max_num_features"] == str(features)
     matching = docker.options("exhaustive_matcher", occurrence=-1)
-    assert matching["--FeatureMatching.max_num_matches"] == str(features)
+    assert matching["--FeatureMatching.max_num_matches"] == str(cfg.oom_retry_num_matches)
+    assert result.manifest.metrics["oom_retry"] is True
+    logs = [log.name for log in (scan / "sfm" / "colmap" / "logs").iterdir()]
+    assert len([name for name in logs if name.endswith(f"{command}.log")]) == 2
     assert any("Grafikspeicher" in warning for warning in result.manifest.warnings)
 
 
@@ -594,12 +600,13 @@ def test_second_gpu_oom_exits_30(scan: Path, docker: FakeDocker) -> None:
     When the stage runs,
     Then it exits 30 with the GPU memory hint.
     """
-    docker.fail("feature_extractor", "CUDA error: out of memory", times=2)
+    docker.fail("feature_extractor", "CUDA_ERROR_OUT_OF_MEMORY", times=2)
 
     result = sfm(scan)
 
     assert result.exit_code is ExitCode.OOM
     assert any("Grafikspeicher" in hint for hint in result.manifest.hints)
+    assert result.manifest.peak_vram_mb == 1234  # also measured for failed commands
 
 
 @pytest.mark.parametrize(("code", "output"), [(137, ""), (134, "std::bad_alloc")])
@@ -845,7 +852,12 @@ def test_low_vram_profile_limits_the_image_edge() -> None:
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    [("MIN_REGISTRATION_RATIO", "0.95"), ("MAX_NUM_MATCHES", "100"), ("CAMERA_MODEL", "x y")],
+    [
+        ("MIN_REGISTRATION_RATIO", "0.95"),
+        ("MAX_NUM_MATCHES", "100"),
+        ("CAMERA_MODEL", "x y"),
+        ("OOM_RETRY_NUM_FEATURES", "8192"),
+    ],
 )
 def test_inconsistent_profile_is_rejected(
     monkeypatch: pytest.MonkeyPatch, name: str, value: str
