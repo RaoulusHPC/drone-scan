@@ -17,6 +17,7 @@ import platform
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -30,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from dronescan import __version__
 from dronescan.common import gpu
 from dronescan.common.config import ProfileError, Settings, describe_validation_error, load_settings
+from dronescan.common.gpu_lock import GpuLockError, stage_gpu_lock
 
 MANIFEST_NAME = "manifest.json"
 _HASH_CHUNK = 1024 * 1024
@@ -149,6 +151,11 @@ class Stage(ABC):
     name: ClassVar[str]
     version: ClassVar[str]
     uses_gpu: ClassVar[bool] = False
+    """The stage needs the GPU: it takes the machine-wide GPU lock (KAN-80) while it runs."""
+    applies_vram_limit: ClassVar[bool] = True
+    """Only with ``uses_gpu``: apply the PyTorch allocator limit and measure the peak in this
+    process. False for stages that use the GPU through a subprocess or container (COLMAP): they
+    take the lock but the runner makes no torch calls."""
 
     @abstractmethod
     def inputs(self, scan_dir: Path) -> list[Path]:
@@ -316,17 +323,27 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
             ExitCode.INPUT_MISSING, skipped=False, manifest=run.manifest(ExitCode.INPUT_MISSING)
         )
 
+    # Holds the GPU lock until the manifest is written; closed on every exit path.
+    with ExitStack() as exit_stack:
+        return _run_locked(stage, scan_dir, settings, force, run, exit_stack)
+
+
+def _run_locked(
+    stage: Stage,
+    scan_dir: Path,
+    settings: Settings,
+    force: bool,
+    run: _Run,
+    exit_stack: ExitStack,
+) -> StageResult:
     gpu_started = False
+    acquiring = False
     code = ExitCode.OK
     ctx: StageContext | None = None
     try:
         input_paths = stage.inputs(scan_dir)
         run.params = _jsonable(stage.params(settings))
-        missing = [p for p in input_paths if not p.exists()]
-        if missing:
-            names = ", ".join(run.relative(p) for p in missing)
-            raise InputMissingError(f"Eingabe fehlt: {names}", [INPUT_MISSING_HINT])
-        run.inputs = {run.relative(p): hash_path(p) for p in input_paths}
+        _hash_inputs(run, input_paths)
 
         manifest_path = run.out_dir / MANIFEST_NAME
         if not force and _is_cache_hit(_load_manifest(manifest_path), run):
@@ -335,10 +352,25 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
             assert cached is not None
             return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=cached)
 
+        if stage.uses_gpu:
+            # Only a stage that really runs takes the lock (not cached ones). Held until the
+            # manifest is written, so the next GPU stage starts after this one fully finished.
+            acquiring = True
+            waited = exit_stack.enter_context(stage_gpu_lock(settings))
+            acquiring = False
+            if waited:
+                # Another job ran meanwhile: it may have produced exactly this result or
+                # changed the inputs, so look again before computing.
+                _hash_inputs(run, input_paths)
+                if not force and _is_cache_hit(_load_manifest(manifest_path), run):
+                    log.info("stage_skipped", stage=stage.name, after_wait=True)
+                    cached = _load_manifest(manifest_path)
+                    assert cached is not None
+                    return StageResult(exit_code=ExitCode.OK, skipped=True, manifest=cached)
         run.out_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.unlink(missing_ok=True)  # a crash must not leave a valid cache behind
         log.info("stage_started", stage=stage.name, force=force)
-        if stage.uses_gpu:
+        if stage.uses_gpu and stage.applies_vram_limit:
             gpu.apply_vram_limit(settings)  # before the first allocation (KAN-20)
             gpu.reset_peak_memory()
             gpu_started = True
@@ -350,7 +382,7 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
         run.error = INTERRUPTED
         run.hints.append(INTERRUPTED_HINT)
         _collect(run, ctx, gpu_started)
-        run.finish(ExitCode.ERROR)
+        _finish(run, ExitCode.ERROR, acquiring)
         raise
     except StageError as exc:
         code, run.error = exc.exit_code, str(exc)
@@ -359,6 +391,9 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
         code = ExitCode.ERROR
         run.error = f"Eingabe '{exc}' liegt außerhalb des Scan-Verzeichnisses."
         run.hints.append("Abhilfe: Dateien in das Scan-Verzeichnis importieren (Stufe 'import').")
+    except GpuLockError as exc:
+        code, run.error = ExitCode.ERROR, exc.cause
+        run.hints.append(f"Abhilfe: {exc.remedy}")
     except gpu.GpuUnavailableError as exc:
         code, run.error = ExitCode.ERROR, exc.cause
         run.hints.append(f"Abhilfe: {exc.remedy}")
@@ -371,6 +406,27 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
             code = ExitCode.ERROR
             run.hints.append(ERROR_HINT)
     _collect(run, ctx, gpu_started)
+    return _finish(run, code, acquiring)
+
+
+def _hash_inputs(run: _Run, input_paths: list[Path]) -> None:
+    """Check that all inputs exist and (re)compute their hashes into ``run.inputs``."""
+    missing = [p for p in input_paths if not p.exists()]
+    if missing:
+        names = ", ".join(run.relative(p) for p in missing)
+        raise InputMissingError(f"Eingabe fehlt: {names}", [INPUT_MISSING_HINT])
+    run.inputs = {run.relative(p): hash_path(p) for p in input_paths}
+
+
+def _finish(run: _Run, code: ExitCode, acquiring: bool) -> StageResult:
+    """Write the manifest, except for a failed or interrupted wait for the GPU lock.
+
+    While waiting nothing of this run happened, so an existing manifest (possibly a valid
+    cache from an earlier run) in ``out_dir`` must stay untouched.
+    """
+    if acquiring and (run.out_dir / MANIFEST_NAME).exists():
+        log.info("stage_failed", stage=run.stage.name, exit_code=int(code), manifest_kept=True)
+        return StageResult(exit_code=code, skipped=False, manifest=run.manifest(code))
     return run.finish(code)
 
 
