@@ -97,6 +97,62 @@ class IngestSettings(_Section):
 
 class SfmSettings(_Section):
     max_image_edge_px: PositiveInt = Field(description="Longest image edge for feature extraction.")
+    max_num_features: PositiveInt = Field(description="SIFT features per image.")
+    max_num_matches: PositiveInt = Field(
+        description="Features per image the GPU matcher can hold (determines its VRAM)."
+    )
+    camera_model: str = Field(
+        pattern=r"^[A-Z_]+$", description="COLMAP camera model, one camera per flight."
+    )
+    exhaustive_max_keyframes: PositiveInt = Field(
+        description="Up to this many keyframes all pairs are matched, above it sequential "
+        "matching with loop detection (PO decision 2026-11-25)."
+    )
+    sequential_overlap: PositiveInt = Field(description="Neighbours matched per keyframe.")
+    loop_vocab_words: PositiveInt = Field(
+        description="Words of the vocabulary tree built from the scan's own features."
+    )
+    loop_vocab_iterations: PositiveInt = Field(description="k-means iterations of the tree.")
+    loop_vocab_rounds: PositiveInt = Field(description="k-means restarts of the tree.")
+    loop_vocab_max_descriptors: PositiveInt = Field(
+        description="Descriptors sampled for building the tree (CPU time, RAM)."
+    )
+    loop_vocab_timeout_s: PositiveInt = Field(
+        description="Give up building the tree after this time and match without loop detection."
+    )
+    min_registration_ratio: float = Field(
+        gt=0, le=1, description="Share of keyframes in the largest model; below it exit 20."
+    )
+    target_registration_ratio: float = Field(
+        gt=0, le=1, description="Target Q-3; below it the stage warns."
+    )
+    oom_retry_image_edge_px: PositiveInt = Field(
+        description="Longest image edge for the second attempt after running out of VRAM."
+    )
+    oom_retry_num_features: PositiveInt = Field(
+        description="SIFT features per image for the second attempt."
+    )
+    oom_retry_num_matches: PositiveInt = Field(
+        description="Match capacity for the second attempt (SIFT may exceed the feature limit)."
+    )
+
+    @model_validator(mode="after")
+    def _consistent_limits(self) -> Self:
+        if self.min_registration_ratio > self.target_registration_ratio:
+            raise ValueError("min_registration_ratio must not exceed target_registration_ratio")
+        if self.max_num_matches < self.max_num_features:
+            raise ValueError("max_num_matches must not be smaller than max_num_features")
+        if (
+            self.oom_retry_image_edge_px >= self.max_image_edge_px
+            or self.oom_retry_num_features >= self.max_num_features
+            or self.oom_retry_num_matches >= self.max_num_matches
+        ):
+            raise ValueError("oom_retry_* values must be smaller than the normal ones")
+        if self.oom_retry_num_matches < self.oom_retry_num_features:
+            raise ValueError(
+                "oom_retry_num_matches must not be smaller than oom_retry_num_features"
+            )
+        return self
 
 
 class SplatSettings(_Section):
@@ -136,6 +192,11 @@ class Settings(BaseSettings):
         gt=0,
         le=MAX_VRAM_LIMIT_GB,
         description="PyTorch allocator limit per process in GiB (CUDA context comes on top).",
+    )
+    gpu_device: int = Field(
+        ge=0,
+        description="nvidia-smi index of the GPU for containers started by stages; same "
+        "variable (DRONESCAN_GPU_DEVICE) as compose.yaml.",
     )
     gpu: GpuSettings
     ingest: IngestSettings

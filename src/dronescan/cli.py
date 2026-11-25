@@ -20,6 +20,7 @@ from dronescan.common.config import ProfileError, describe_validation_error, loa
 from dronescan.common.logging import configure_logging
 from dronescan.common.stage import ExitCode, register_stage
 from dronescan.ingest.stage import IngestStage
+from dronescan.sfm.stage import SfmStage
 
 app = typer.Typer(
     name="drone-scan",
@@ -119,3 +120,4 @@ def flight_add(
 
 
 register_stage(app, IngestStage)
+register_stage(app, SfmStage)

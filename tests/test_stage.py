@@ -576,6 +576,42 @@ def test_cli_prints_german_status_and_hints(scan: Path) -> None:
 
     assert "echo: fertig." in first.output
     assert "Hinweis: Licht einschalten." in first.output
+    assert "Warnung: Belichtung schwankt." in first.output
+    assert "Warnung: Belichtung schwankt." in second.output
     assert "übersprungen" in second.output
     assert failed.exit_code == 20
     assert "Hinweis: Langsamer bewegen" in failed.output
+
+
+class ExternalGpuStage(EchoStage):
+    """GPU stage whose work runs in another process (no PyTorch here)."""
+
+    name: ClassVar[str] = "external_gpu"
+    uses_gpu: ClassVar[bool] = True
+    applies_vram_limit: ClassVar[bool] = False
+
+    def run(self, ctx: StageContext) -> None:
+        ctx.metrics["ratio"] = 0.5
+        for peak in (900.0, None, 1200.0, 800.0):
+            ctx.record_peak_vram(peak)
+        super().run(ctx)
+
+
+def test_external_gpu_stage_reports_its_own_peak_and_metrics(
+    scan: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a GPU stage that works in another process and a machine without PyTorch,
+    When it runs, or fails with insufficient quality,
+    Then the highest reported peak and the metrics are in the manifest.
+    """
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+    assert run_stage(ExternalGpuStage(), scan, settings).exit_code is ExitCode.OK
+    manifest = read_manifest(scan, "external_gpu")
+    assert manifest.peak_vram_mb == 1200.0
+    assert manifest.metrics == {"ratio": 0.5}
+
+    run_stage(ExternalGpuStage("quality"), scan, settings, force=True)
+    failed = read_manifest(scan, "external_gpu")
+    assert failed.status == "quality_insufficient"
+    assert failed.peak_vram_mb == 1200.0 and failed.metrics == {"ratio": 0.5}
