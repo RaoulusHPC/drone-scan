@@ -240,3 +240,64 @@ def read_ply_header(path: Path) -> tuple[int, list[str]]:
             elif line == "end_header":
                 break
     return count, names
+
+
+@dataclass(frozen=True)
+class Splats:
+    """Gaussians in the layout of `write_ply` (COLMAP world frame: x right, y down, z forward)."""
+
+    means: NDArray[np.float32]  # [N, 3]
+    sh0: NDArray[np.float32]  # [N, 1, 3]
+    sh_rest: NDArray[np.float32]  # [N, K-1, 3]
+    opacity_logits: NDArray[np.float32]  # [N]
+    log_scales: NDArray[np.float32]  # [N, 3]
+    quats_wxyz: NDArray[np.float32]  # [N, 4]
+
+    def __len__(self) -> int:
+        return len(self.means)
+
+    @property
+    def sh_degree(self) -> int:
+        return int(round((self.sh_rest.shape[1] + 1) ** 0.5)) - 1
+
+    def subset(self, index: NDArray[np.intp]) -> Splats:
+        return Splats(
+            means=self.means[index],
+            sh0=self.sh0[index],
+            sh_rest=self.sh_rest[index],
+            opacity_logits=self.opacity_logits[index],
+            log_scales=self.log_scales[index],
+            quats_wxyz=self.quats_wxyz[index],
+        )
+
+
+def read_ply(path: Path) -> Splats:
+    """Read a PLY written by `write_ply` (float properties only, binary little-endian)."""
+    try:
+        count, names = read_ply_header(path)
+        with path.open("rb") as handle:
+            while (line := handle.readline()).strip() != b"end_header":
+                if not line:
+                    raise ValueError("no end_header")
+            data = np.fromfile(handle, dtype=[(name, "<f4") for name in names], count=count)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise SceneError(f"Die Splat-Datei {path.name} ist nicht lesbar.") from exc
+    rest_names = sorted((n for n in names if n.startswith("f_rest_")), key=lambda n: int(n[7:]))
+    required = ["x", "y", "z", "f_dc_0", "opacity", "scale_0", "rot_0"]
+    if len(data) != count or any(n not in names for n in required) or len(rest_names) % 3:
+        raise SceneError(f"Die Splat-Datei {path.name} ist unvollständig.")
+
+    def stack(*columns: str) -> NDArray[np.float32]:
+        return np.stack([data[c] for c in columns], axis=1).astype(np.float32)
+
+    rest = stack(*rest_names) if rest_names else np.zeros((count, 0), np.float32)
+    # channel-major in the file (all R, then G, then B), see `write_ply`
+    sh_rest = rest.reshape(count, 3, -1).transpose(0, 2, 1)
+    return Splats(
+        means=stack("x", "y", "z"),
+        sh0=stack("f_dc_0", "f_dc_1", "f_dc_2").reshape(count, 1, 3),
+        sh_rest=np.ascontiguousarray(sh_rest),
+        opacity_logits=data["opacity"].astype(np.float32),
+        log_scales=stack("scale_0", "scale_1", "scale_2"),
+        quats_wxyz=stack("rot_0", "rot_1", "rot_2", "rot_3"),
+    )

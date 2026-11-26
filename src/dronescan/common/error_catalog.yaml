@@ -205,6 +205,26 @@ codes:
         Abhilfe: andere GPU-Programme schließen; auf langsamen Rechnern
         DRONESCAN_SPLAT__TIMEOUT_S erhöhen oder DRONESCAN_SPLAT__MAX_ITERATIONS senken.
     exceptions: [WorkerError, WorkerTimeoutError]
+  # --- compress (KAN-42) ----------------------------------------------------------------
+  - id: compress.recon_missing
+    exit_code: 10
+    scope: compress
+    cause: Die trainierte Szene fehlt (Stufe 'recon' nicht erfolgreich gelaufen).
+    hints:
+      - "Abhilfe: zuerst 'drone-scan recon --scan <scan>' ausführen."
+  - id: compress.scene_unreadable
+    exit_code: 1
+    scope: compress
+    cause: recon/splat/scene.ply ist beschädigt oder unvollständig.
+    hints:
+      - "Abhilfe: 'drone-scan recon --scan <scan> --force' ausführen und die Stufe wiederholen."
+  - id: compress.empty
+    exit_code: 20
+    scope: compress
+    cause: Nach dem Entfernen unsichtbarer Gaussians bleibt keine Szene übrig.
+    hints:
+      - "Den Raum neu aufnehmen: Licht an, langsam und vollständig filmen."
+      - "Abhilfe bei bewusst sehr transparenten Szenen: compress.min_opacity im Profil senken."
   # --- capture (CLI commands that are not pipeline stages) -------------------------------
   - id: capture.scan_invalid
     exit_code: 10

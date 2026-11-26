@@ -86,6 +86,10 @@ splat:
   oom_retry_max_gaussians: 5000
   oom_retry_image_edge_px: 320
   timeout_s: 600
+compress:
+  max_gaussians: 10000
+  min_opacity: 0.01
+  sh_degree: 0
 search:
   detector_batch_size: 1
 """
