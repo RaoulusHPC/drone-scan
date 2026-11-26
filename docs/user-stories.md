@@ -341,7 +341,6 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine
 - [ ] Training mit gsplat; Profil `low_vram_6gb` hält Peak ≤ 5,5 GiB gesamt pro Prozess (Q-2).
 - [ ] Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`.
 - [ ] OOM → automatische Wiederholung mit kleinerem Profil (einmal).
-- [ ] Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
 - [ ] `make test-gpu` führt die PyTorch-GPU-Tests im Worker-Container aus; `test_real_gpu_respects_limit` läuft real auf der GTX 1060 mit 5,0-GiB-Grenze (vor neuem Splat-Code).
 - [ ] `make smoke` erzeugt zusätzlich einen Mini-Splat (`metrics.psnr_db` im Manifest), PSNR-Schwelle in `tests/golden/kurz.yaml`; Posen + Mini-Splat < 2 min auf der GTX 1060.
 
@@ -777,6 +776,7 @@ Als **Entwickler (PO + Claude Code)** möchte ich Qualitätsmetriken (Q-1 bis Q-
 
 - [ ] `make bench` misst Laufzeit, Peak-VRAM, registrierte Frames, Maßstabsfehler, PSNR/SSIM, Suchtreffer Top-3.
 - [ ] Ergebnisse als CSV/Markdown-Bericht mit Vergleich zum letzten Lauf.
+- [ ] Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
 
 ### US-059 / KAN-74: Quellcode-Hinweis in Server und Viewer (AGPL)
 
