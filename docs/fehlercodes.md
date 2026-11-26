@@ -22,3 +22,16 @@ Der Kalibrierbefehl ist keine Pipeline-Stufe (kein Manifest), nutzt aber dieselb
 | 2 | Aufruffehler (ungültiger `--name`, `--pattern`, `--model`, Zieldatei existiert) | Aufruf prüfen, `--force` zum Ersetzen |
 | 10 | Video fehlt oder ist nicht lesbar | Pfad prüfen, Video neu exportieren |
 | 20 | Muster in zu wenigen Bildern gefunden (`calibration.min_views`) oder Restfehler zu groß (`calibration.max_rms_error_px`) | Muster scharf, flach und aus vielen Winkeln bis in die Bildecken filmen; `--cols`/`--rows` zählen Felder |
+
+### `drone-scan models pull` / `models list` (KAN-24)
+
+`models pull [NAME…]` ist der **einzige Netzwerkzugriff** von drone-scan (CLAUDE.md Regel 3). Er lädt nur Modelle aus `models.lock` nach `models/<name>/<version>/` (`--models-dir` bzw. `DRONESCAN_MODELS_DIR`) und prüft jede Datei per SHA-256. Erst eine geprüfte Datei wird an ihren Platz verschoben. `models list` zeigt Status (`ok`, `fehlt`, `beschädigt`) und Lizenzen und läuft offline. Beide sind keine Pipeline-Stufen (kein Manifest), nutzen aber dieselben Codes:
+
+| Code | Bedeutung | Abhilfe |
+|---|---|---|
+| 0 | Alle angeforderten Modelle geprüft vorhanden (heruntergeladen oder bereits da) | – (`--force` lädt neu) |
+| 1 | SHA-256 weicht ab (Download verworfen, Abbruch vor dem nächsten Modell), Download größer als `size_bytes`, HTTP-Fehler, keine Verbindung, Datei nicht schreibbar oder `models.lock` ungültig | Bei Hash-Abweichung später erneut versuchen. Bleibt sie, hat sich die Datei an der Quelle geändert, und der Eintrag muss neu geprüft werden (PO, `license-auditor`). Sonst Verbindung, Proxy, Speicherplatz und Schreibrechte prüfen |
+| 2 | Modellname steht nicht in `models.lock` (es wird nichts geladen) | Nur gelistete Modelle laden. Neue Einträge prüft und genehmigt der PO (Lizenz der Gewichte) |
+| 10 | `models.lock` nicht gefunden | Im Repository-Verzeichnis ausführen oder `--lock` bzw. `DRONESCAN_MODELS_LOCK` setzen |
+
+Stufen lesen Gewichte nur über `resolve_model` und laden nie selbst nach. Fehlt ein Modell oder ist es beschädigt, meldet `resolve_model` einen Fehler mit dem Hinweis `drone-scan models pull <name>`. Die erste Stufe mit Modellen (KAN-46) bildet das auf Exit 10 ab. `models.lock` erlaubt `http://` nur für 127.0.0.1/localhost (lokaler Test-Server oder Mirror), das Lizenz-Gate warnt dann. Weiterleitungen werden nur auf zulässige Adressen verfolgt.

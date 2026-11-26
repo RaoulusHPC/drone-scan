@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from collections.abc import Generator, Iterator
 from pathlib import Path
 
@@ -94,3 +95,40 @@ def isolate_state_dir(
     if request.node.get_closest_marker("gpu"):
         request.getfixturevalue("gpu_session_lock")  # before the path is redirected
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+
+
+class NetworkBlockedError(OSError):
+    """Raised by `block_network` for any attempt to reach another host."""
+
+
+@pytest.fixture
+def block_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Block all IP network access of this process (CLAUDE.md rule 3, KAN-24).
+
+    Name resolution and every IPv4/IPv6 connect fail, including loopback; Unix sockets
+    (subprocess pipes, Docker's socket in fake setups) keep working. Subprocesses are not
+    covered: containers started by stages run with `--network none` (tests in test_sfm.py
+    and test_recon.py).
+    """
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise NetworkBlockedError("Netzwerkzugriff im Test blockiert (CLAUDE.md Regel 3)")
+
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def connect(self: socket.socket, address: object) -> None:
+        if self.family in (socket.AF_INET, socket.AF_INET6):
+            refuse()
+        original_connect(self, address)  # type: ignore[arg-type]
+
+    def connect_ex(self: socket.socket, address: object) -> int:
+        if self.family in (socket.AF_INET, socket.AF_INET6):
+            refuse()
+        return original_connect_ex(self, address)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    monkeypatch.setattr(socket, "gethostbyname", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)

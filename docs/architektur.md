@@ -301,7 +301,7 @@ flowchart LR
 - Nach dem Upload bewertet `ingest` je Flug Schärfe, Belichtung, Bewegungsgeschwindigkeit und Abdeckung (grob) in `ingest/<flight_id>/quality.json` (Ampel grün/gelb/rot je Kriterium, Handlungsempfehlungen auf Deutsch). `ingest/manifest.json` (`metrics.quality`) fasst alle Flüge eines Scans zu einer Gesamtampel zusammen; der Viewer zeigt sie an (US-019/KAN-34, PO-Entscheidung 2026-11-25: die Ampel-Darstellung selbst folgt mit KAN-43).
 
 ### 8.3 Reproduzierbarkeit & Caching
-Es gibt Manifeste pro Stufe, gepinnte Abhängigkeiten (`uv.lock`), ein `models.lock` (Name, Version, SHA-256, Lizenz, Quelle) und feste Seeds.
+Es gibt Manifeste pro Stufe, gepinnte Abhängigkeiten (`uv.lock`), ein `models.lock` (Name, Version, Quelle, Download-URL, SHA-256, Lizenz der Gewichte und des Codes; `drone-scan models pull` lädt nur diese Dateien nach `models/` und prüft den Hash, KAN-24) und feste Seeds.
 
 ### 8.4 Lizenz-Compliance
 `licenses/allowlist.yaml` (erlaubte SPDX-IDs), `licenses/denylist.yaml` (bekannte NC-Pakete und -Modelle, die als `NC` markiert werden, sowie harte Verbote, jeweils mit Begründung). Der CI-Job prüft Python- und npm-Abhängigkeiten sowie das `models.lock`. Pro Release wird eine SBOM erzeugt (SPDX/CycloneDX). Copyleft-Werkzeuge (OpenMVS, ArduPilot, ggf. ORB-SLAM3) werden nur als separater Prozess bzw. separates Image genutzt und nicht in den eigenen Code eingebunden.
