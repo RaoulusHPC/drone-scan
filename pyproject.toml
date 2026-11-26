@@ -60,7 +60,8 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = ["--strict-markers", "-ra", "-p", "pytester"]
 markers = [
-    "gpu: needs CUDA, run via `make test-gpu` with DRONESCAN_VRAM_LIMIT_GB=5.5",
+    "gpu: needs CUDA, run via `make test-gpu` with DRONESCAN_VRAM_LIMIT_GB=5.0",
+    "torch: needs PyTorch/gsplat; with `gpu` it runs in the worker-test container (make test-gpu)",
     "bench: slow benchmarks on reference rooms, not in CI",
     "sitl: needs ArduPilot SITL flight simulation",
 ]

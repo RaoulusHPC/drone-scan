@@ -84,3 +84,24 @@ WORKDIR /workspace
 # the mounted workspace/ stay owned by the user.
 USER ubuntu
 CMD ["drone-scan", "--help"]
+
+# ---------- test stage: worker + dev group (pytest) for `make test-gpu` (KAN-41) ----------
+# Built only on request (compose profile "test"). The tests and the code under test come from
+# the repository mounted read-only at /repo (PYTHONPATH=/repo/src), so source edits need no
+# rebuild; this image only adds the locked dev dependencies to the worker environment.
+FROM runtime AS test
+USER root
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_HTTP_TIMEOUT=300 \
+    PYTHONDONTWRITEBYTECODE=1
+WORKDIR /tmp/lock
+COPY pyproject.toml uv.lock README.md ./
+# --only-group dev: no project install; --inexact keeps PyTorch, gsplat and drone-scan.
+RUN uv sync --locked --inexact --only-group dev --python /usr/bin/python3.12 \
+    && rm -rf /tmp/lock /root/.cache/uv
+WORKDIR /repo
+USER ubuntu
+CMD ["pytest", "-m", "gpu and torch", "-p", "no:cacheprovider"]

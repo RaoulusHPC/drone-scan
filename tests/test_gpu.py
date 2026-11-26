@@ -135,26 +135,37 @@ def test_fp16_only_on_sm70_or_newer(
 
 
 @pytest.mark.gpu
+@pytest.mark.torch
 @pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="PyTorch not installed")
 def test_real_gpu_respects_limit() -> None:
-    """Given a real CUDA GPU and DRONESCAN_VRAM_LIMIT_GB (set by `make test-gpu`),
-    When the limit is applied and more memory is requested than allowed,
-    Then PyTorch raises an out-of-memory error.
+    """Given a real CUDA GPU and DRONESCAN_VRAM_LIMIT_GB (5.0 via `make test-gpu`),
+    When the limit is applied,
+    Then PyTorch's allocator holds exactly that limit, rejects a request above it with an
+    out-of-memory error that reports the limit, and still serves a request below it.
+
+    On the GTX 1060 the display takes about 1 GiB, so less than 5.0 GiB are physically free
+    and an over-limit request would also fail without the limit. The allocator checks the
+    limit before it asks the driver, and its error names the limit ("5.00 GiB allowed"), so
+    the message shows which check rejected the request (KAN-41, PO decision 2026-11-26).
     """
     torch = importlib.import_module("torch")
     if not torch.cuda.is_available():
         pytest.skip("no CUDA device")
     settings = load_settings()
-    total = int(torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory)
-    # Request just above the limit but clearly below the card size, so only the limit can fail.
-    request = min(int((settings.vram_limit_gb + 0.25) * GIB), total - GIB // 4)
-    if request <= settings.vram_limit_gb * GIB:
-        pytest.skip("card too small to distinguish the limit from physical memory")
-    free_bytes, _ = torch.cuda.mem_get_info()
-    if request >= free_bytes:
-        pytest.skip("not enough free VRAM (display/other processes); OOM would not prove the limit")
+    device = torch.cuda.current_device()
+    total = int(torch.cuda.get_device_properties(device).total_memory)
+    if total <= settings.vram_limit_gb * GIB:
+        pytest.skip("card not larger than the limit: the fraction would be clamped to 1.0")
 
-    apply_vram_limit(settings)
+    fraction = apply_vram_limit(settings)
 
-    with pytest.raises(torch.cuda.OutOfMemoryError):
-        torch.empty(request, dtype=torch.uint8, device="cuda")
+    assert torch.cuda.get_per_process_memory_fraction(device) == pytest.approx(fraction)
+    assert fraction * total == pytest.approx(settings.vram_limit_gb * GIB, rel=1e-6)
+    with pytest.raises(
+        torch.cuda.OutOfMemoryError, match=rf"{settings.vram_limit_gb:.2f} GiB allowed"
+    ):
+        torch.empty(int((settings.vram_limit_gb + 0.25) * GIB), dtype=torch.uint8, device="cuda")
+    below = torch.empty(GIB, dtype=torch.uint8, device="cuda")  # far below limit and free memory
+    assert below.numel() == GIB
+    del below
+    torch.cuda.empty_cache()

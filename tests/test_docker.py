@@ -46,6 +46,13 @@ def require_image(service: str) -> None:
         pytest.skip(f"image {image_name(service)} not built (docker compose build {service})")
 
 
+def runtime_stage(dockerfile: Path) -> str:
+    """Text of the stage that becomes the shipped image (`AS runtime`; the worker's `test`
+    stage after it only exists for `make test-gpu`)."""
+    stages = dockerfile.read_text(encoding="utf-8").split("\nFROM ")
+    return next(stage for stage in stages if stage.split("\n", 1)[0].endswith(" AS runtime"))
+
+
 def arg_value(dockerfile: Path, name: str) -> str:
     match = re.search(rf"^ARG {name}=(\S+)", dockerfile.read_text(encoding="utf-8"), re.MULTILINE)
     assert match, f"ARG {name} missing in {dockerfile.name}"
@@ -114,12 +121,11 @@ def test_colmap_is_offline_and_without_agpl_lsd() -> None:
     ],
 )
 def test_runtime_image_ships_license_notices(dockerfile: Path, notice: str) -> None:
-    """Given the final image stage,
+    """Given the runtime image stage,
     When third-party code was compiled into it,
     Then its license texts are copied into the image (ADR-0007).
     """
-    final_stage = dockerfile.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
-    assert notice in final_stage
+    assert notice in runtime_stage(dockerfile)
 
 
 def test_gsplat_patch_is_applied_strictly() -> None:
@@ -165,12 +171,13 @@ def test_gsplat_patch_keeps_the_sm70_path_unchanged() -> None:
 
 @pytest.mark.parametrize("dockerfile", [WORKER, COLMAP])
 def test_runtime_stage_runs_as_non_root(dockerfile: Path) -> None:
-    """Given the final image stage,
+    """Given the runtime image stage,
     When a container starts,
     Then it does not run as root.
     """
-    final_stage = dockerfile.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
-    assert re.search(r"^USER (?!root)\S+", final_stage, re.MULTILINE)
+    for stage in (runtime_stage(dockerfile), dockerfile.read_text(encoding="utf-8")):
+        last_user = re.findall(r"^USER (\S+)", stage, re.MULTILINE)[-1]
+        assert last_user != "root"  # the shipped stage and the last (test) stage
 
 
 def test_compose_defines_worker_and_colmap_on_gtx_1060() -> None:
@@ -222,6 +229,60 @@ def test_compose_mounts_workspace_and_data() -> None:
     volumes = compose()["services"]["worker"]["volumes"]
     assert "./workspace:/workspace" in volumes
     assert "./data:/data:ro" in volumes
+
+
+def test_worker_service_builds_the_runtime_stage() -> None:
+    """Given the worker Dockerfile whose last stage is `test` (KAN-41),
+    When compose builds the worker service,
+    Then it builds the `runtime` stage, so the worker image carries no test tools.
+    """
+    assert compose()["services"]["worker"]["build"]["target"] == "runtime"
+    assert re.search(r"^FROM \S+ AS runtime$", WORKER.read_text(encoding="utf-8"), re.MULTILINE)
+
+
+def test_worker_test_service_runs_torch_gpu_tests_offline_on_the_source() -> None:
+    """Given the worker-test service (make test-gpu, KAN-41),
+    When it runs,
+    Then it uses the `test` stage on the GTX 1060 with the 5.0 GiB limit, has no network, tests
+    the read-only mounted repository from source, hides data/ and workspace/ (private
+    recordings) and takes the shared GPU lock; it is not started by `docker compose up`.
+    """
+    service = compose()["services"]["worker-test"]
+    worker = compose()["services"]["worker"]
+    assert service["build"]["target"] == "test"
+    assert service["profiles"] == ["test"]
+    assert service["network_mode"] == "none"
+    assert service["deploy"] == worker["deploy"] and service["runtime"] == "nvidia"
+    environment = service["environment"]
+    assert environment["DRONESCAN_VRAM_LIMIT_GB"] == "${DRONESCAN_VRAM_LIMIT_GB:-5.0}"
+    assert (
+        environment["DRONESCAN_GPU__LOCK_FILE"] == worker["environment"]["DRONESCAN_GPU__LOCK_FILE"]
+    )
+    assert environment["PYTHONPATH"].split(":")[0] == "/repo/src"
+    assert environment["DRONESCAN_TEST_REQUIRE_GPU"] == "1"
+    assert ".:/repo:ro" in service["volumes"]
+    assert set(service["tmpfs"]) == {"/repo/data", "/repo/workspace"}
+    assert image_name("worker-test").startswith("drone-scan/worker-test:")
+    test_stage = WORKER.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
+    assert test_stage.startswith("runtime AS test")
+    assert "--only-group dev" in test_stage and "--locked" in test_stage
+    assert '"gpu and torch"' in test_stage
+
+
+def test_make_test_gpu_runs_host_and_container_parts() -> None:
+    """Given the Makefile,
+    When `make test-gpu` runs,
+    Then the host runs the GPU tests without PyTorch and the worker-test container the
+    PyTorch ones, both on GTX 1060 (device 0) with the 5.0 GiB limit.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("\ntest-gpu:", 1)[1].split("\n\n", 1)[0]
+    assert 'pytest -m "gpu and not torch"' in recipe
+    assert "docker compose run --rm -T worker-test" in recipe
+    assert "DRONESCAN_GPU_DEVICE=$(GPU_DEVICES)" in recipe
+    assert "DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB)" in recipe
+    assert re.search(r"^GPU_DEVICES \?= 0$", makefile, re.MULTILINE)
+    assert re.search(r"^VRAM_LIMIT_GB \?= 5\.0$", makefile, re.MULTILINE)
 
 
 def test_dockerignore_keeps_private_and_large_files_out() -> None:
