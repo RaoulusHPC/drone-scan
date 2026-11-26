@@ -1,4 +1,7 @@
-# Model registry (ADR-0007): one entry per model weight file, checked by `make license-gate`.
-# For models the license of the WEIGHTS decides. Fields: name, version, sha256, license, source.
-# Entries are added with `drone-scan models pull` (KAN-24).
+# Model registry (ADR-0007, KAN-24): one entry per model weight file, checked by `make license-gate`.
+# `drone-scan models pull [NAME...]` downloads exactly these files into models/ (DRONESCAN_MODELS_DIR)
+# and aborts on a SHA-256 mismatch; it is the only network access of drone-scan (CLAUDE.md rule 3).
+# For models the license of the WEIGHTS decides; new entries only after a license check (PO).
+# Fields: name, version, source (model card), url (https download), sha256, weights_license,
+# code_license; optional: filename (default: last URL segment), size_bytes.
 models: []

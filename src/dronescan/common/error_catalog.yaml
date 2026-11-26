@@ -265,6 +265,53 @@ codes:
     cause: Das Kameraprofil konnte nicht geschrieben werden.
     hints:
       - "Abhilfe: Zielordner und Schreibrechte prüfen oder mit --output einen anderen Pfad angeben."
+  # --- models (drone-scan models pull/list, KAN-24) ---------------------------------------
+  - id: models.lock_missing
+    exit_code: 10
+    scope: models
+    cause: models.lock wurde nicht gefunden.
+    hints:
+      - "Abhilfe: im Repository-Verzeichnis ausführen oder den Pfad mit --lock bzw. DRONESCAN_MODELS_LOCK angeben."
+  - id: models.lock_invalid
+    exit_code: 1
+    scope: models
+    cause: models.lock ist nicht lesbar oder ungültig (jedes Modell braucht name, version, source, url, sha256, weights_license und code_license).
+    hints:
+      - "Abhilfe: die in der Meldung genannte Stelle in models.lock korrigieren."
+  - id: models.unknown_name
+    exit_code: 2
+    scope: models
+    cause: Der Modellname steht nicht in models.lock (es wird nichts geladen).
+    hints:
+      - "Abhilfe: nur gelistete Modelle laden; neue Einträge prüft der PO (Lizenz der Gewichte)."
+  - id: models.hash_mismatch
+    exit_code: 1
+    scope: models
+    cause: Die SHA-256 der heruntergeladenen Datei weicht von models.lock ab. Der Download wird verworfen und der Lauf bricht vor dem nächsten Modell ab.
+    hints:
+      - >-
+        Abhilfe: später erneut versuchen; tritt es wieder auf, hat sich die Datei an der Quelle
+        geändert und der Eintrag muss neu geprüft werden (PO, license-auditor).
+  - id: models.download_failed
+    exit_code: 1
+    scope: models
+    cause: Der Download ist fehlgeschlagen (HTTP-Fehler, keine Verbindung, größer als size_bytes oder Weiterleitung auf eine unsichere Adresse).
+    hints:
+      - "Abhilfe: Internetverbindung und Proxy prüfen, URL in models.lock prüfen, dann erneut `drone-scan models pull` ausführen."
+    exceptions: [PullError]
+  - id: models.write_failed
+    exit_code: 1
+    scope: models
+    cause: Eine Datei im Modellverzeichnis ist nicht les- oder schreibbar.
+    hints:
+      - "Abhilfe: freien Speicherplatz und Schreibrechte prüfen (--models-dir bzw. DRONESCAN_MODELS_DIR)."
+  - id: models.not_available
+    exit_code: 10
+    scope: models
+    cause: Ein von einer Stufe benötigtes Modell steht nicht in models.lock, ist nicht heruntergeladen, nicht lesbar oder beschädigt.
+    hints:
+      - "Abhilfe: einmalig `drone-scan models pull <name>` ausführen (einziger Netzwerkzugriff)."
+    exceptions: [ModelNotAvailableError]
   # --- cli -------------------------------------------------------------------------------
   - id: cli.config_invalid
     exit_code: 1

@@ -40,7 +40,7 @@ def _error_classes() -> dict[str, ast.ClassDef]:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     classes[node.name] = node
-    builtin = {"Exception", "RuntimeError", "ValueError", "OSError"}
+    builtin = {"Exception", "RuntimeError", "ValueError", "OSError", "LookupError"}
     errors: set[str] = set()
     changed = True
     while changed:  # transitive closure over the base classes
@@ -188,6 +188,7 @@ def test_docs_mention_no_unknown_code() -> None:
     assert all(f"`{code}`" in text for code in ids)
     scopes = "|".join({code.split(".")[0] for code in ids})
     mentioned = set(re.findall(rf"`((?:{scopes})\.[a-z0-9_]+)`", text))
+    mentioned -= {"models.lock"}  # a file name, not a code
     assert mentioned <= ids, mentioned - ids
 
 
@@ -211,10 +212,23 @@ def test_capture_and_cli_codes_exist_in_the_catalog() -> None:
     """
     names = {"CalibrationError": 1, "_echo_code": 0}
     found = 0
-    for path in (SRC / "capture" / "calibration.py", SRC / "cli.py"):
+    paths = (
+        SRC / "capture" / "calibration.py",
+        SRC / "cli.py",
+        SRC / "common" / "models_pull.py",
+        SRC / "common" / "models_lock.py",
+        SRC / "common" / "licenses.py",
+    )
+    for path in paths:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
                 continue
+            if node.func.id == "PullError":  # code is a keyword or the catalogued default
+                keyword = next((k.value for k in node.keywords if k.arg == "code"), None)
+                if keyword is not None:
+                    assert isinstance(keyword, ast.Constant), f"{path.name}:{node.lineno}"
+                    assert catalog.get(str(keyword.value)).exit_code == 1
+                    found += 1
             if node.func.id in names and len(node.args) > names[node.func.id]:
                 arg = node.args[names[node.func.id]]
                 if not isinstance(arg, ast.Constant):  # _echo_code(exc.code): checked in __init__
@@ -223,3 +237,14 @@ def test_capture_and_cli_codes_exist_in_the_catalog() -> None:
                 catalog.get(str(arg.value))
                 found += 1
     assert found >= 8
+
+
+def test_pull_error_default_code_is_catalogued() -> None:
+    """
+    Given PullError without an explicit code
+    When it is created
+    Then it carries a catalog code with exit code 1 (`models pull` exits with 1).
+    """
+    from dronescan.common.models_pull import PullError
+
+    assert catalog.get(PullError("x").code).exit_code == 1
