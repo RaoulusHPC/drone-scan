@@ -156,6 +156,10 @@ def host(path):
 
 
 for failure in config["failures"]:
+    if failure["command"] == command and failure.get("skip", 0) > 0:
+        failure["skip"] -= 1  # let this call pass, fail a later one
+        (state / "config.json").write_text(json.dumps(config))
+        continue
     if failure["command"] == command and failure["times"] > 0:
         failure["times"] -= 1
         (state / "config.json").write_text(json.dumps(config))
@@ -226,8 +230,14 @@ class FakeDocker:
         self.config["models"] = [[size, 100] for size in sizes]
         self.save()
 
-    def fail(self, command: str, output: str, code: int = 1, times: int = 1) -> None:
-        failure = {"command": command, "output": output, "code": code, "times": times}
+    def fail(self, command: str, output: str, code: int = 1, times: int = 1, skip: int = 0) -> None:
+        failure = {
+            "command": command,
+            "output": output,
+            "code": code,
+            "times": times,
+            "skip": skip,
+        }
         self.config["failures"].append(failure)
         self.save()
 

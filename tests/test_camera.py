@@ -348,6 +348,36 @@ def test_changed_profile_invalidates_the_cache(
     assert docker.options("feature_extractor", 1)["--ImageReader.camera_model"] == "OPENCV_FISHEYE"
 
 
+def test_oom_in_a_later_camera_group_re_extracts_all_groups(
+    tmp_path: Path,
+    docker: FakeDocker,  # noqa: F811
+) -> None:
+    """Given two flights with different camera setups,
+    When the GPU runs out of memory in the second feature extraction,
+    Then the database is rebuilt: the retry extracts both groups again with smaller values.
+    """
+    scan = make_scan(tmp_path / "scan", 6, 4)
+    set_camera(scan, CameraProfile(name="fisheye", model="OPENCV_FISHEYE"), flight=1)
+    docker.fail("feature_extractor", "ERROR: Not enough GPU memory", code=1, skip=1)
+    docker.models(10)
+
+    result = sfm(scan)
+
+    assert result.exit_code is ExitCode.OK, result.manifest.error
+    assert result.manifest.metrics["oom_retry"] is True
+    calls = [docker.options("feature_extractor", n) for n in range(4)]
+    assert [c["--ImageReader.camera_model"] for c in calls] == [
+        "SIMPLE_RADIAL",
+        "OPENCV_FISHEYE",
+        "SIMPLE_RADIAL",
+        "OPENCV_FISHEYE",
+    ]
+    edges = [int(c["--FeatureExtraction.max_image_size"]) for c in calls]
+    assert edges[2] == edges[3] < edges[0] == edges[1]
+    database = (scan / "sfm" / "colmap" / "database.db").read_text().split()
+    assert database == ["/sfm/image_list_0.txt", "/sfm/image_list_1.txt"]
+
+
 def test_missing_keyframe_size_exits_10(tmp_path: Path, docker: FakeDocker) -> None:  # noqa: F811
     scan = make_scan(tmp_path / "scan", 10)
     set_camera(scan, CALIBRATED)

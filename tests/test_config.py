@@ -291,3 +291,11 @@ def test_calibration_views_must_be_consistent(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(ValidationError, match="min_views must not exceed max_views"):
         load_settings()
+
+
+def test_calibration_needs_at_least_two_views(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MIN_VIEWS", "1")
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MAX_VIEWS", "1")
+
+    with pytest.raises(ValidationError, match="max_views"):
+        load_settings()

@@ -22,6 +22,7 @@ import structlog
 
 from dronescan.capture.camera import CameraProfile, Intrinsics, write_camera
 from dronescan.capture.scan import SCAN_FILE, FlightMeta, ScanError, load_scan
+from dronescan.common.camera_models import CameraModel
 from dronescan.common.config import Settings, SfmSettings
 from dronescan.common.stage import (
     GPU_OOM_HINT,
@@ -115,7 +116,7 @@ log = structlog.get_logger(__name__)
 class _CameraSetup:
     """What COLMAP is told about a camera: model and optional start values."""
 
-    model: str
+    model: CameraModel
     params: tuple[float, ...] | None = None
 
 
@@ -414,12 +415,14 @@ class _Reconstruction:
         for flight, camera_id in sorted(flight_cameras.items()):
             camera = cameras[camera_id]
             intrinsics = Intrinsics(width=camera.width, height=camera.height, params=camera.params)
-            profile = CameraProfile(
-                name=flight,
-                description=f"Von COLMAP geschätzt (Flug {flight}).",
-                model=camera.model,  # type: ignore[arg-type]  # one of the models we passed
-                intrinsics=intrinsics,
-                source="colmap",
+            profile = CameraProfile.model_validate(
+                {
+                    "name": flight,
+                    "description": f"Von COLMAP geschätzt (Flug {flight}).",
+                    "model": camera.model,  # one of the models passed to COLMAP
+                    "intrinsics": intrinsics,
+                    "source": "colmap",
+                }
             )
             try:
                 write_camera(profile, self._ctx.out_dir / CAMERAS_DIR / f"{flight}.yaml")

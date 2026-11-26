@@ -29,7 +29,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from dronescan.capture.camera import CameraModel
+from dronescan.common.camera_models import CameraModel
 
 DEFAULT_PROFILE = "low_vram_6gb"
 ENV_PREFIX = "DRONESCAN_"
@@ -225,8 +225,8 @@ class CalibrationSettings(_Section):
     min_views: PositiveInt = Field(
         description="Fewer views than this cannot be calibrated (exit 20)."
     )
-    max_views: PositiveInt = Field(
-        description="Views used at most, evenly spread over the video (computing time)."
+    max_views: int = Field(
+        ge=2, description="Views used at most, evenly spread over the video (computing time)."
     )
     max_rms_error_px: float = Field(
         gt=0, description="Reprojection error above which the calibration is rejected (exit 20)."

@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 from dronescan import __version__
 from dronescan.capture.camera import (
-    CAMERA_MODELS,
     CameraError,
     available_cameras,
     is_camera_name,
@@ -24,6 +23,7 @@ from dronescan.capture.camera import (
     write_camera,
 )
 from dronescan.capture.scan import ScanError, add_flight, create_scan, resolve_scan_dir
+from dronescan.common.camera_models import CAMERA_MODELS
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 from dronescan.common.logging import configure_logging
 from dronescan.common.stage import ExitCode, register_stage
@@ -220,7 +220,15 @@ def camera_calibrate(
         for hint in exc.hints:
             typer.echo(f"Hinweis: {hint}", err=True)
         raise typer.Exit(code=int(exc.exit_code)) from exc
-    write_camera(result.profile, target)
+    try:
+        write_camera(result.profile, target)
+    except OSError as exc:
+        typer.echo(
+            f"Kameraprofil '{target.name}' konnte nicht geschrieben werden. Abhilfe: Zielordner "
+            "und Schreibrechte prüfen oder mit --output einen anderen Pfad angeben.",
+            err=True,
+        )
+        raise typer.Exit(code=int(ExitCode.ERROR)) from exc
     typer.echo(
         f"Kameraprofil gespeichert: {target.name} ({result.profile.model}, "
         f"{result.views} Ansichten, Restfehler {result.profile.rms_error_px:.3f} px). "

@@ -8,14 +8,16 @@ convention: OpenCV puts the centre of the first pixel at (0, 0), COLMAP at (0.5,
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 
-from dronescan.capture.camera import CameraModel, CameraProfile, Intrinsics, principal_point_index
+from dronescan.capture.camera import CameraProfile, Intrinsics, principal_point_index
 from dronescan.capture.probe import ProbeError, probe_video
+from dronescan.common.camera_models import CameraModel
 from dronescan.common.config import CalibrationSettings
 from dronescan.common.stage import ExitCode
 from dronescan.ingest.ffmpeg import FfmpegError, decode_gray, fit_size
@@ -37,6 +39,7 @@ VIEW_HINTS = [
     "die Bildränder bringen.",
     "Muster flach auf eine feste Unterlage kleben (nicht gewellt).",
 ]
+VIDEO_HINT = "Abhilfe: Video prüfen oder neu exportieren (MP4/MOV mit H.264/H.265)."
 PATTERN_HINT = (
     "Mustergröße prüfen: --cols und --rows zählen die Felder (Quadrate), nicht die inneren "
     "Ecken; bei ChArUco auch --dictionary prüfen."
@@ -225,10 +228,22 @@ def calibrate(
     """Detect ``board`` in ``video`` and calibrate ``model``; raises CalibrationError."""
     cv2 = _cv2()
     detector = _Detector(cv2, board)
+    if not video.is_file():
+        raise CalibrationError(
+            f"Video '{video.name}' nicht gefunden.",
+            ["Abhilfe: Pfad prüfen."],
+            ExitCode.INPUT_MISSING,
+        )
+    if shutil.which("ffprobe") is None:
+        raise CalibrationError(
+            "ffmpeg/ffprobe ist nicht installiert.",
+            ["Abhilfe: ffmpeg installieren (z. B. `sudo apt install ffmpeg`)."],
+            ExitCode.ERROR,
+        )
     try:
         meta = probe_video(video)
     except ProbeError as exc:
-        raise CalibrationError(str(exc), [], ExitCode.INPUT_MISSING) from exc
+        raise CalibrationError(str(exc), [VIDEO_HINT], ExitCode.INPUT_MISSING) from exc
     size = fit_size(meta.display_width, meta.display_height, cfg.max_image_edge_px)
     views: list[tuple[NDArray[np.float32], NDArray[np.float32]]] = []
     frames = 0
@@ -243,9 +258,7 @@ def calibrate(
     try:
         decode_gray(video, size, cfg.sample_fps, on_frame)
     except FfmpegError as exc:
-        raise CalibrationError(
-            str(exc), ["Abhilfe: Video prüfen oder neu exportieren."], ExitCode.INPUT_MISSING
-        ) from exc
+        raise CalibrationError(str(exc), [VIDEO_HINT], ExitCode.INPUT_MISSING) from exc
     log.info("calibration_views", frames=frames, views=len(views))
     if len(views) < cfg.min_views:
         raise CalibrationError(

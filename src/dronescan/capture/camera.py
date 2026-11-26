@@ -18,17 +18,8 @@ from typing import Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, model_validator
 
-CameraModel = Literal[
-    "SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "RADIAL", "OPENCV", "OPENCV_FISHEYE"
-]
-CAMERA_MODELS: tuple[CameraModel, ...] = (
-    "SIMPLE_PINHOLE",
-    "PINHOLE",
-    "SIMPLE_RADIAL",
-    "RADIAL",
-    "OPENCV",
-    "OPENCV_FISHEYE",
-)
+from dronescan.common.camera_models import CameraModel
+
 # Number of parameters and how many of them are pixel values (focal length(s), principal
 # point); the remaining distortion coefficients refer to normalised coordinates and do not
 # change with the image size.

@@ -20,6 +20,7 @@ import pytest
 from numpy.typing import NDArray
 from typer.testing import CliRunner
 
+from dronescan.capture import calibration
 from dronescan.capture.calibration import _to_colmap
 from dronescan.capture.camera import load_camera
 from dronescan.cli import app
@@ -195,6 +196,48 @@ def test_video_without_pattern_exits_20_with_hints(tmp_path: Path, require_ffmpe
     assert "nur in 0 von 4" in result.output
     assert "Felder (Quadrate)" in result.output
     assert not output.exists()
+
+
+def test_too_large_reprojection_error_exits_20(
+    chessboard_video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a stricter error limit than the calibration reaches,
+    When `camera calibrate` runs,
+    Then it exits 20 with the measured error and hints, and writes no profile.
+    """
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MAX_RMS_ERROR_PX", "0.0001")
+    output = tmp_path / "testcam.yaml"
+
+    result = calibrate(chessboard_video, output)
+
+    assert result.exit_code == 20
+    assert "Restfehler" in result.output
+    assert "Bildecken" in result.output
+    assert not output.exists()
+
+
+def test_failed_optimisation_exits_20(
+    chessboard_video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def diverge(*_: Any, **__: Any) -> Any:
+        raise cv2.error("calibration did not converge")
+
+    monkeypatch.setattr(calibration, "_solve", diverge)
+
+    result = calibrate(chessboard_video, tmp_path / "testcam.yaml")
+
+    assert result.exit_code == 20
+    assert "nicht konvergiert" in result.output
+
+
+def test_unwritable_output_exits_1(chessboard_video: Path, tmp_path: Path) -> None:
+    blocked = tmp_path / "file"
+    blocked.write_text("not a directory")
+
+    result = calibrate(chessboard_video, blocked / "testcam.yaml")
+
+    assert result.exit_code == 1
+    assert "Schreibrechte" in result.output
 
 
 def test_missing_video_exits_10(tmp_path: Path, require_ffmpeg: None) -> None:  # noqa: F811
