@@ -480,7 +480,7 @@ def _drone_scan(args: list[str], *, cwd: Path, image: str | None = None) -> str:
     else:
         command = ["docker", "run", "--rm", "--network", "none"]
         command += ["--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
-        command += ["-v", f"{cwd}:/work", "-w", "/work", image, "drone-scan", *args]
+        command += ["-v", f"{cwd}:/work", "-w", "/work", "--entrypoint", "drone-scan", image, *args]
     result = subprocess.run(
         command, cwd=cwd, capture_output=True, text=True, timeout=600, check=False
     )
@@ -520,7 +520,17 @@ def test_flight_add_and_ingest_in_worker_match_host(tmp_path: Path) -> None:
         check=True,
     )
     version = subprocess.run(
-        ["docker", "run", "--rm", "--network", "none", image_name("worker"), "ffmpeg", "-version"],
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--entrypoint",
+            "ffmpeg",
+            image_name("worker"),
+            "-version",
+        ],
         capture_output=True,
         text=True,
         timeout=120,
