@@ -51,12 +51,18 @@ def to_rub(splats: Splats) -> Splats:
     )
 
 
+def _round(values: NDArray[np.floating]) -> NDArray[np.float64]:
+    """Round half away from zero like std::round in the reference (np.round: half to even)."""
+    v = values.astype(np.float64)
+    return np.sign(v) * np.floor(np.abs(v) + 0.5)
+
+
 def _to_uint8(values: NDArray[np.floating]) -> NDArray[np.uint8]:
-    return np.clip(np.round(values), 0, 255).astype(np.uint8)
+    return np.clip(_round(values), 0, 255).astype(np.uint8)
 
 
 def _quantize_sh(values: NDArray[np.float32], bucket: int) -> NDArray[np.uint8]:
-    q = np.round(values.astype(np.float64) * 128.0 + 128.0)
+    q = _round(values * 128.0 + 128.0)
     q = np.floor((q + bucket / 2) / bucket) * bucket
     return np.clip(q, 0, 255).astype(np.uint8)
 
@@ -66,7 +72,7 @@ def encode(splats: Splats) -> bytes:
     rub = to_rub(splats)
     count, rest = len(rub), rub.sh_rest.shape[1]
 
-    fixed = np.round(rub.means.astype(np.float64) * (1 << FRACTIONAL_BITS)).astype(np.int64)
+    fixed = _round(rub.means * float(1 << FRACTIONAL_BITS)).astype(np.int64)
     fixed = np.clip(fixed, -(1 << 23), (1 << 23) - 1) & 0xFFFFFF
     positions = np.stack([(fixed >> shift) & 0xFF for shift in (0, 8, 16)], axis=-1)
 

@@ -20,10 +20,10 @@ from typer.testing import CliRunner
 from dronescan.cli import app
 from dronescan.common.config import Settings, load_settings
 from dronescan.common.stage import ExitCode, Manifest, StageResult, run_stage
-from dronescan.export.prune import cap, drop_transparent, reduce_sh
+from dronescan.export.prune import cap, drop_non_finite, drop_transparent, reduce_sh
 from dronescan.export.spz import decode, encode, read_spz, to_rub
 from dronescan.export.stage import SCENE_NAME, CompressStage
-from dronescan.recon.scene import Splats, read_ply, write_ply
+from dronescan.recon.scene import SceneError, Splats, read_ply, write_ply
 
 runner = CliRunner()
 POSITION_STEP = 1 / 4096
@@ -200,7 +200,37 @@ def test_ply_round_trip(tmp_path: Path) -> None:
     np.testing.assert_allclose(back.quats_wxyz, splats.quats_wxyz, atol=1e-6)
 
 
+def test_ply_with_an_incomplete_sh_degree_is_rejected(tmp_path: Path) -> None:
+    """Given a PLY with 6 f_rest columns (no complete SH degree),
+    When it is read, Then a SceneError is raised instead of writing a broken SPZ.
+    """
+    splats = make_splats(5, sh_degree=1)
+    broken = Splats(
+        means=splats.means,
+        sh0=splats.sh0,
+        sh_rest=splats.sh_rest[:, :2],
+        opacity_logits=splats.opacity_logits,
+        log_scales=splats.log_scales,
+        quats_wxyz=splats.quats_wxyz,
+    )
+    save(tmp_path / "scene.ply", broken)
+
+    with pytest.raises(SceneError):
+        read_ply(tmp_path / "scene.ply")
+
+
 # ---------- AC 1: pruning to <= 1.5 M Gaussians ----------
+
+
+def test_non_finite_gaussians_are_dropped() -> None:
+    splats = make_splats(4)
+    splats.means[1, 0] = np.nan
+    splats.log_scales[2, 1] = np.inf
+
+    kept = drop_non_finite(splats)
+
+    assert len(kept) == 2
+    np.testing.assert_array_equal(kept.means, splats.means[[0, 3]])
 
 
 def test_cap_keeps_the_most_important_gaussians_in_order() -> None:
@@ -305,7 +335,10 @@ def test_stage_writes_a_capped_spz_and_reports_metrics(scan: Path) -> None:
     metrics = result.manifest.metrics
     assert metrics["gaussians_in"] == 3000 and metrics["gaussians_out"] == 1000
     assert metrics["gaussians_in"] == (
-        metrics["gaussians_transparent"] + metrics["gaussians_over_cap"] + 1000
+        metrics["gaussians_non_finite"]
+        + metrics["gaussians_transparent"]
+        + metrics["gaussians_over_cap"]
+        + 1000
     )
     assert metrics["sh_degree_in"] == 3 and metrics["sh_degree_out"] == 1
     assert metrics["spz_bytes"] == (scan / "compress" / SCENE_NAME).stat().st_size
@@ -362,6 +395,22 @@ def test_scene_without_visible_gaussians_is_quality_insufficient(tmp_path: Path)
     assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT
     assert result.manifest.error_code == "compress.empty"
     assert result.manifest.hints
+
+
+def test_failed_run_removes_the_previous_scene(scan: Path) -> None:
+    """Given a successful run,
+    When the retrained scene has no visible Gaussians,
+    Then the stage exits with 20 and the old scene.spz is gone.
+    """
+    compress(scan)
+    splats = make_splats(10)
+    splats.opacity_logits[:] = -10.0
+    write_recon(scan, splats)
+
+    result = compress(scan)
+
+    assert result.exit_code is ExitCode.QUALITY_INSUFFICIENT
+    assert not (scan / "compress" / SCENE_NAME).exists()
 
 
 def test_broken_ply_is_reported(scan: Path) -> None:

@@ -20,6 +20,7 @@ from dronescan.sfm.model import read_cameras
 
 RAW_SUFFIX = ".rgb"
 _POINT_FIELDS = 8  # POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[]
+_SH_REST_COLUMNS = {3 * ((d + 1) ** 2 - 1) for d in range(4)}  # f_rest_* of SH degree 0-3
 
 
 class SceneError(Exception):
@@ -284,7 +285,11 @@ def read_ply(path: Path) -> Splats:
         raise SceneError(f"Die Splat-Datei {path.name} ist nicht lesbar.") from exc
     rest_names = sorted((n for n in names if n.startswith("f_rest_")), key=lambda n: int(n[7:]))
     required = ["x", "y", "z", "f_dc_0", "opacity", "scale_0", "rot_0"]
-    if len(data) != count or any(n not in names for n in required) or len(rest_names) % 3:
+    if (
+        len(data) != count
+        or any(n not in names for n in required)
+        or len(rest_names) not in _SH_REST_COLUMNS
+    ):
         raise SceneError(f"Die Splat-Datei {path.name} ist unvollständig.")
 
     def stack(*columns: str) -> NDArray[np.float32]:

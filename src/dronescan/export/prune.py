@@ -19,6 +19,21 @@ def importance(splats: Splats) -> NDArray[np.float64]:
     return _opacity(splats) * np.exp(log_scales.sum(axis=1) - log_scales.min(axis=1))
 
 
+def drop_non_finite(splats: Splats) -> Splats:
+    """Drop Gaussians with NaN/Inf in any attribute (they cannot be quantised)."""
+    finite = np.ones(len(splats), dtype=bool)
+    for values in (
+        splats.means,
+        splats.sh0,
+        splats.sh_rest,
+        splats.opacity_logits,
+        splats.log_scales,
+        splats.quats_wxyz,
+    ):
+        finite &= np.isfinite(values.reshape(len(splats), -1)).all(axis=1)
+    return splats.subset(np.flatnonzero(finite))
+
+
 def drop_transparent(splats: Splats, min_opacity: float) -> Splats:
     """Drop Gaussians whose opacity is below ``min_opacity`` (order is kept)."""
     return splats.subset(np.flatnonzero(_opacity(splats) >= min_opacity))

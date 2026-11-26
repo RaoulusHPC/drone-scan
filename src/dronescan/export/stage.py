@@ -64,21 +64,32 @@ class CompressStage(Stage):
 
     def run(self, ctx: StageContext) -> None:
         # numpy: lazy, keeps the CLI start fast
-        from dronescan.export.prune import cap, drop_transparent, reduce_sh
+        from dronescan.export.prune import cap, drop_non_finite, drop_transparent, reduce_sh
         from dronescan.export.spz import write_spz
         from dronescan.recon.scene import SceneError, read_ply
 
         cfg = ctx.settings.compress
         ply = ctx.inputs[0]
+        scene_path = ctx.out_dir / SCENE_NAME
+        try:
+            scene_path.unlink(missing_ok=True)  # a failed run must not leave an old scene
+        except OSError as exc:
+            raise StageError(
+                "Ergebnisse konnten nicht geschrieben werden.",
+                [WRITE_HINT],
+                code="common.write_failed",
+            ) from exc
         try:
             splats = read_ply(ply)
         except SceneError as exc:
             raise StageError(str(exc), UNREADABLE_HINTS, code="compress.scene_unreadable") from exc
-        visible = drop_transparent(splats, cfg.min_opacity)
+        finite = drop_non_finite(splats)
+        visible = drop_transparent(finite, cfg.min_opacity)
         kept = cap(visible, cfg.max_gaussians)
         ctx.metrics.update(
             gaussians_in=len(splats),
-            gaussians_transparent=len(splats) - len(visible),
+            gaussians_non_finite=len(splats) - len(finite),
+            gaussians_transparent=len(finite) - len(visible),
             gaussians_over_cap=len(visible) - len(kept),
             gaussians_out=len(kept),
             sh_degree_in=splats.sh_degree,
@@ -89,7 +100,7 @@ class CompressStage(Stage):
             )
         scene = reduce_sh(kept, cfg.sh_degree)
         try:
-            size = write_spz(ctx.out_dir / SCENE_NAME, scene)
+            size = write_spz(scene_path, scene)
         except OSError as exc:
             raise StageError(
                 "Ergebnisse konnten nicht geschrieben werden.",
