@@ -22,12 +22,15 @@ import structlog
 
 from dronescan.capture.camera import CameraProfile, Intrinsics, write_camera
 from dronescan.capture.scan import SCAN_FILE, FlightMeta, ScanError, load_scan
+from dronescan.common import error_catalog as catalog
 from dronescan.common.camera_models import CameraModel
 from dronescan.common.config import Settings, SfmSettings
 from dronescan.common.stage import (
     GPU_OOM_HINT,
     INPUT_MISSING_HINT,
     MANIFEST_NAME,
+    NO_FLIGHT_HINT,
+    WRITE_HINT,
     InputMissingError,
     OutOfMemoryError,
     QualityError,
@@ -39,8 +42,6 @@ from dronescan.common.stage import (
 from dronescan.ingest.stage import (
     FRAMES_DIR,
     FRAMES_TABLE,
-    NO_FLIGHT_HINT,
-    WRITE_HINT,
     FlightSummary,
     IngestStage,
 )
@@ -66,17 +67,9 @@ _IMAGE_LIST = "image_list.txt"
 _VOCAB_TREE = "vocab_tree.bin"
 _NO_MODEL = "failed to create any sparse model"
 
-UNAVAILABLE_HINTS = [
-    "Abhilfe: Docker starten und das Image bauen mit `docker compose build colmap`.",
-    "GPU im Container prüfen mit `make docker-check` (NVIDIA Container Toolkit, siehe README).",
-]
-COLMAP_HINT = "Abhilfe: Logdateien in sfm/colmap/logs/ prüfen und mit --force erneut ausführen."
-QUALITY_HINTS = [
-    "Licht einschalten und möglichst bei Tageslicht aufnehmen.",
-    "Langsamer bewegen (≤ 0,5 m/s) und 1 bis 1,5 m Abstand zu den Wänden halten.",
-    "Türdurchgänge doppelt aufnehmen (hin und zurück).",
-    "Bei weißen Wänden, Glas oder Spiegeln 2 bis 4 AprilTags aufhängen.",
-]
+UNAVAILABLE_HINTS = catalog.hints("sfm.image_unavailable")
+COLMAP_HINT = catalog.hint("sfm.colmap_failed")
+QUALITY_HINTS = catalog.hints("sfm.no_model")
 LOOP_WARNING = (
     "Die Erkennung bereits besuchter Orte (Loop-Detection) war nicht möglich. Das Modell kann "
     "sich über lange Wege verziehen oder in Teile zerfallen."
@@ -150,15 +143,20 @@ class SfmStage(Stage):
         try:
             flights = load_scan(scan_dir).flights
         except ScanError as exc:
-            raise InputMissingError(str(exc), [INPUT_MISSING_HINT]) from exc
+            raise InputMissingError(
+                str(exc), [INPUT_MISSING_HINT], code="common.input_missing"
+            ) from exc
         if not flights:
-            raise InputMissingError("Der Scan enthält noch kein Video.", [NO_FLIGHT_HINT])
+            raise InputMissingError(
+                "Der Scan enthält noch kein Video.", [NO_FLIGHT_HINT], code="common.no_flight"
+            )
         ingest = scan_dir / IngestStage.name
         manifest = load_manifest(ingest / MANIFEST_NAME)
         if manifest is None or manifest.status != "ok":
             raise InputMissingError(
                 "Die Einzelbilder fehlen: Stufe 'ingest' ist nicht erfolgreich gelaufen.",
                 [INPUT_MISSING_HINT],
+                code="sfm.frames_missing",
             )
         # scan.yaml holds the camera profiles: a changed profile invalidates the result.
         return [scan_file] + [
@@ -181,6 +179,7 @@ class SfmStage(Stage):
             raise StageError(
                 f"Das Docker-Image '{COLMAP_IMAGE}' fehlt oder Docker ist nicht erreichbar.",
                 UNAVAILABLE_HINTS,
+                code="sfm.image_unavailable",
             )
         try:
             for old in (work, ctx.out_dir / CAMERAS_DIR):
@@ -193,7 +192,11 @@ class SfmStage(Stage):
                     text = "\n".join(group.images) + "\n"
                     (work / _group_list(index)).write_text(text, encoding="utf-8")
         except OSError as exc:
-            raise StageError("Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]) from exc
+            raise StageError(
+                "Ergebnisse konnten nicht geschrieben werden.",
+                [WRITE_HINT],
+                code="common.write_failed",
+            ) from exc
         colmap = Colmap(
             mounts=[
                 Mount(ctx.scan_dir / IngestStage.name, "/ingest", read_only=True),
@@ -205,11 +208,11 @@ class SfmStage(Stage):
         try:
             _Reconstruction(ctx, colmap, work, images, groups).run()
         except ColmapUnavailableError as exc:
-            raise StageError(str(exc), UNAVAILABLE_HINTS) from exc
+            raise StageError(str(exc), UNAVAILABLE_HINTS, code="sfm.image_unavailable") from exc
         except ColmapOutOfMemoryError as exc:
-            raise OutOfMemoryError(str(exc), [GPU_OOM_HINT]) from exc
+            raise OutOfMemoryError(str(exc), [GPU_OOM_HINT], code="common.gpu_oom") from exc
         except ColmapError as exc:
-            raise StageError(str(exc), [COLMAP_HINT]) from exc
+            raise StageError(str(exc), [COLMAP_HINT], code="sfm.colmap_failed") from exc
         finally:
             ctx.record_peak_vram(colmap.peak_vram_mib)
 
@@ -245,7 +248,9 @@ class _Reconstruction:
         self._ctx.metrics["model_sizes"] = [model.images for model in models]
         if not models:
             self._ctx.metrics.update(registered_images=0, registration_ratio=0.0)
-            raise QualityError("Aus den Einzelbildern entstand kein 3D-Modell.", QUALITY_HINTS)
+            raise QualityError(
+                "Aus den Einzelbildern entstand kein 3D-Modell.", QUALITY_HINTS, code="sfm.no_model"
+            )
         self._evaluate(models)
 
     def _record(self, step: str, result: StepResult) -> None:
@@ -395,7 +400,9 @@ class _Reconstruction:
             if ratio < self._cfg.min_registration_ratio:
                 shutil.rmtree(text_dir)
                 needed = _percent(self._cfg.min_registration_ratio)
-                raise QualityError(f"{message} (mindestens {needed} nötig).", hints)
+                raise QualityError(
+                    f"{message} (mindestens {needed} nötig).", hints, code="sfm.no_model"
+                )
             goal = _percent(self._cfg.target_registration_ratio)
             self._ctx.warn(f"{message} (Ziel: {goal}). Teile des Modells können fehlen.")
             for hint in hints:
@@ -428,7 +435,9 @@ class _Reconstruction:
                 write_camera(profile, self._ctx.out_dir / CAMERAS_DIR / f"{flight}.yaml")
             except OSError as exc:
                 raise StageError(
-                    "Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]
+                    "Ergebnisse konnten nicht geschrieben werden.",
+                    [WRITE_HINT],
+                    code="common.write_failed",
                 ) from exc
             metrics[flight]["estimated"] = intrinsics.model_dump()
 
@@ -464,7 +473,9 @@ def _frame_size(scan_dir: Path, flight: str) -> tuple[int, int]:
         summary = FlightSummary.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise InputMissingError(
-            f"Flug {flight}: Angaben zu den Einzelbildern fehlen.", [INPUT_MISSING_HINT]
+            f"Flug {flight}: Angaben zu den Einzelbildern fehlen.",
+            [INPUT_MISSING_HINT],
+            code="sfm.frames_missing",
         ) from exc
     return summary.frame_width, summary.frame_height
 
@@ -534,7 +545,9 @@ def _keyframes(inputs: list[Path]) -> list[str]:
         for row in sorted(rows, key=lambda row: row["timestamp_s"]):
             if not (flight_dir / row["file"]).is_file():
                 raise InputMissingError(
-                    f"Flug {flight_dir.name}: Einzelbilder fehlen.", [INPUT_MISSING_HINT]
+                    f"Flug {flight_dir.name}: Einzelbilder fehlen.",
+                    [INPUT_MISSING_HINT],
+                    code="sfm.frames_missing",
                 )
             images.append(f"{flight_dir.name}/{row['file']}")
     return images

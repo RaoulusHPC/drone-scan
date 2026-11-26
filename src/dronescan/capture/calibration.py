@@ -17,6 +17,7 @@ import structlog
 
 from dronescan.capture.camera import CameraProfile, Intrinsics, principal_point_index
 from dronescan.capture.probe import ProbeError, probe_video
+from dronescan.common import error_catalog as catalog
 from dronescan.common.camera_models import CameraModel
 from dronescan.common.config import CalibrationSettings
 from dronescan.common.stage import ExitCode
@@ -29,32 +30,18 @@ if TYPE_CHECKING:
 Pattern = Literal["chessboard", "charuco"]
 _COLMAP_PIXEL_OFFSET = 0.5
 
-OPENCV_MISSING_HINT = (
-    "Abhilfe: das optionale Paket installieren mit `uv sync --extra calibration` "
-    "(bzw. `pip install 'drone-scan[calibration]'`)."
-)
-VIEW_HINTS = [
-    "Muster vollständig, scharf und gut beleuchtet filmen; die Kamera langsam bewegen.",
-    "Aus verschiedenen Winkeln und Abständen filmen, das Muster auch in die Bildecken und an "
-    "die Bildränder bringen.",
-    "Muster flach auf eine feste Unterlage kleben (nicht gewellt).",
-]
-VIDEO_HINT = "Abhilfe: Video prüfen oder neu exportieren (MP4/MOV mit H.264/H.265)."
-PATTERN_HINT = (
-    "Mustergröße prüfen: --cols und --rows zählen die Felder (Quadrate), nicht die inneren "
-    "Ecken; bei ChArUco auch --dictionary prüfen."
-)
-
 log = structlog.get_logger(__name__)
 
 
 class CalibrationError(Exception):
     """User-facing (German) failure with hints and the exit code of the command."""
 
-    def __init__(self, message: str, hints: list[str], exit_code: ExitCode) -> None:
+    def __init__(self, message: str, code: str, hints: list[str] | None = None) -> None:
         super().__init__(message)
-        self.hints = hints
-        self.exit_code = exit_code
+        entry = catalog.get(code)
+        self.code = code
+        self.hints = list(entry.hints if hints is None else hints)
+        self.exit_code = ExitCode(entry.exit_code)
 
 
 @dataclass(frozen=True)
@@ -81,7 +68,7 @@ def _cv2() -> Any:
         import cv2
     except ImportError as exc:
         raise CalibrationError(
-            "Für die Kalibrierung fehlt OpenCV.", [OPENCV_MISSING_HINT], ExitCode.ERROR
+            "Für die Kalibrierung fehlt OpenCV.", "capture.calibration_opencv_missing"
         ) from exc
     return cv2
 
@@ -103,15 +90,15 @@ class _Detector:
         if board.marker_mm is None or board.marker_mm >= board.square_mm:
             raise CalibrationError(
                 "Für ChArUco fehlt die Markergröße oder sie ist nicht kleiner als ein Feld.",
+                "capture.calibration_board_invalid",
                 ["Abhilfe: --marker-mm mit der gemessenen Kantenlänge eines Markers angeben."],
-                ExitCode.ERROR,
             )
         dictionary_id = getattr(cv2.aruco, board.dictionary, None)
         if not board.dictionary.startswith("DICT_") or dictionary_id is None:
             raise CalibrationError(
                 f"Unbekanntes ArUco-Wörterbuch '{board.dictionary}'.",
+                "capture.calibration_board_invalid",
                 ["Abhilfe: ein Wörterbuch wie DICT_4X4_50 oder DICT_5X5_100 angeben."],
-                ExitCode.ERROR,
             )
         charuco = cv2.aruco.CharucoBoard(
             (board.cols, board.rows),
@@ -231,19 +218,18 @@ def calibrate(
     if not video.is_file():
         raise CalibrationError(
             f"Video '{video.name}' nicht gefunden.",
+            "capture.calibration_video_unreadable",
             ["Abhilfe: Pfad prüfen."],
-            ExitCode.INPUT_MISSING,
         )
     if shutil.which("ffprobe") is None:
         raise CalibrationError(
             "ffmpeg/ffprobe ist nicht installiert.",
-            ["Abhilfe: ffmpeg installieren (z. B. `sudo apt install ffmpeg`)."],
-            ExitCode.ERROR,
+            "capture.calibration_ffmpeg_missing",
         )
     try:
         meta = probe_video(video)
     except ProbeError as exc:
-        raise CalibrationError(str(exc), [VIDEO_HINT], ExitCode.INPUT_MISSING) from exc
+        raise CalibrationError(str(exc), "capture.calibration_video_unreadable") from exc
     size = fit_size(meta.display_width, meta.display_height, cfg.max_image_edge_px)
     views: list[tuple[NDArray[np.float32], NDArray[np.float32]]] = []
     frames = 0
@@ -258,31 +244,27 @@ def calibrate(
     try:
         decode_gray(video, size, cfg.sample_fps, on_frame)
     except FfmpegError as exc:
-        raise CalibrationError(str(exc), [VIDEO_HINT], ExitCode.INPUT_MISSING) from exc
+        raise CalibrationError(str(exc), "capture.calibration_video_unreadable") from exc
     log.info("calibration_views", frames=frames, views=len(views))
     if len(views) < cfg.min_views:
         raise CalibrationError(
             f"Das Muster wurde nur in {len(views)} von {frames} untersuchten Bildern gefunden "
             f"(mindestens {cfg.min_views} nötig).",
-            [*VIEW_HINTS, PATTERN_HINT],
-            ExitCode.QUALITY_INSUFFICIENT,
+            "capture.calibration_quality",
         )
     used = _spread(views, cfg.max_views)
     try:
         rms, params = _solve(cv2, model, [v[0] for v in used], [v[1] for v in used], size)
     except cv2.error as exc:
         raise CalibrationError(
-            "Die Kalibrierung ist nicht konvergiert.",
-            VIEW_HINTS,
-            ExitCode.QUALITY_INSUFFICIENT,
+            "Die Kalibrierung ist nicht konvergiert.", "capture.calibration_quality"
         ) from exc
     log.info("calibration_finished", views=len(used), rms_px=round(rms, 3), model=model)
     if rms > cfg.max_rms_error_px:
         raise CalibrationError(
             f"Der Restfehler der Kalibrierung ist mit {rms:.2f} px zu groß "
             f"(höchstens {cfg.max_rms_error_px:g} px).",
-            [*VIEW_HINTS, PATTERN_HINT],
-            ExitCode.QUALITY_INSUFFICIENT,
+            "capture.calibration_quality",
         )
     profile = CameraProfile(
         name=name,

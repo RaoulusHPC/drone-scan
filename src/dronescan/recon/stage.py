@@ -25,11 +25,13 @@ import structlog
 from pydantic import ValidationError
 
 from dronescan.capture.scan import ScanError, load_scan
+from dronescan.common import error_catalog as catalog
 from dronescan.common.config import Settings, SplatSettings
 from dronescan.common.stage import (
     GPU_OOM_HINT,
     INPUT_MISSING_HINT,
     MANIFEST_NAME,
+    WRITE_HINT,
     InputMissingError,
     OutOfMemoryError,
     QualityError,
@@ -39,7 +41,7 @@ from dronescan.common.stage import (
     load_manifest,
 )
 from dronescan.ingest.ffmpeg import FfmpegError, ffmpeg_version, image_to_rgb
-from dronescan.ingest.stage import FRAMES_DIR, WRITE_HINT, IngestStage
+from dronescan.ingest.stage import FRAMES_DIR, IngestStage
 from dronescan.recon.job import (
     JOB_NAME,
     PLY_NAME,
@@ -74,19 +76,10 @@ _RAW = "raw"
 _TRAIN_MODULE = "dronescan.recon.train"
 _MIN_IMAGES = 2  # one for training, one held out
 
-UNAVAILABLE_HINTS = [
-    "Abhilfe: Docker starten und die Images bauen mit `docker compose build worker colmap`.",
-    "GPU im Container prüfen mit `make docker-check` (NVIDIA Container Toolkit, siehe README).",
-]
-LOG_HINT = "Abhilfe: Logdateien in recon/work/logs/ prüfen und mit --force erneut ausführen."
-TIMEOUT_HINT = (
-    "Abhilfe: andere GPU-Programme schließen; auf langsamen Rechnern "
-    "DRONESCAN_SPLAT__TIMEOUT_S erhöhen oder DRONESCAN_SPLAT__MAX_ITERATIONS senken."
-)
-FEW_IMAGES_HINTS = [
-    "Mehr Einzelbilder aufnehmen: langsamer und länger filmen.",
-    "Die Stufe 'sfm' muss mindestens zwei Einzelbilder verorten.",
-]
+UNAVAILABLE_HINTS = catalog.hints("recon.image_unavailable")
+LOG_HINT = catalog.hint("recon.prepare_failed")
+TIMEOUT_HINT = catalog.hint("recon.train_timeout")
+FEW_IMAGES_HINTS = catalog.hints("recon.few_images")
 OOM_RETRY_WARNING = (
     "Der Grafikspeicher hat nicht gereicht. Das Training wurde einmal mit kleineren Werten "
     "wiederholt ({gaussians} Gaussians, {edge} px): Die Szene ist weniger detailliert."
@@ -122,11 +115,14 @@ class ReconStage(Stage):
             raise InputMissingError(
                 "Die Kameraposen fehlen: Stufe 'sfm' ist nicht erfolgreich gelaufen.",
                 [INPUT_MISSING_HINT],
+                code="recon.sfm_missing",
             )
         try:
             flights = load_scan(scan_dir).flights
         except ScanError as exc:
-            raise InputMissingError(str(exc), [INPUT_MISSING_HINT]) from exc
+            raise InputMissingError(
+                str(exc), [INPUT_MISSING_HINT], code="common.input_missing"
+            ) from exc
         ingest = scan_dir / IngestStage.name
         return [sfm / COLMAP_DIR / SPARSE_DIR] + [ingest / f.id / FRAMES_DIR for f in flights]
 
@@ -148,6 +144,7 @@ class ReconStage(Stage):
                 raise StageError(
                     f"Das Docker-Image '{image}' fehlt oder Docker ist nicht erreichbar.",
                     UNAVAILABLE_HINTS,
+                    code="recon.image_unavailable",
                 )
         ctx.metrics["worker_image_id"] = docker_image_id(WORKER_IMAGE)
         work, splat = ctx.out_dir / WORK_DIR, ctx.out_dir / SPLAT_DIR
@@ -158,7 +155,11 @@ class ReconStage(Stage):
             work.mkdir(parents=True)
             splat.mkdir()
         except OSError as exc:
-            raise StageError("Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]) from exc
+            raise StageError(
+                "Ergebnisse konnten nicht geschrieben werden.",
+                [WRITE_HINT],
+                code="common.write_failed",
+            ) from exc
         try:
             self._undistort(ctx, work, cfg)
             result = self._train(ctx, work, cfg)
@@ -195,17 +196,18 @@ class ReconStage(Stage):
                 },
             )
         except ColmapUnavailableError as exc:
-            raise StageError(str(exc), UNAVAILABLE_HINTS) from exc
+            raise StageError(str(exc), UNAVAILABLE_HINTS, code="recon.image_unavailable") from exc
         except ColmapError as exc:
-            raise StageError(str(exc), [LOG_HINT]) from exc
+            raise StageError(str(exc), [LOG_HINT], code="recon.prepare_failed") from exc
         try:
             scene = read_scene(work / _SCENE)
         except SceneError as exc:
-            raise StageError(str(exc), [LOG_HINT]) from exc
+            raise StageError(str(exc), [LOG_HINT], code="recon.prepare_failed") from exc
         if len(scene.views) < _MIN_IMAGES:
             raise QualityError(
                 f"Nur {len(scene.views)} verortetes Einzelbild: zu wenig für das Training.",
                 FEW_IMAGES_HINTS,
+                code="recon.few_images",
             )
         try:
             for view in scene.views:
@@ -216,7 +218,7 @@ class ReconStage(Stage):
                     view.height,
                 )
         except FfmpegError as exc:
-            raise StageError(str(exc), [LOG_HINT]) from exc
+            raise StageError(str(exc), [LOG_HINT], code="recon.prepare_failed") from exc
         train, held_out = split_holdout(len(scene.views), cfg.holdout_every)
         ctx.metrics.update(images=len(scene.views), images_train=len(train))
         ctx.metrics["images_holdout"] = len(held_out)
@@ -252,9 +254,9 @@ class ReconStage(Stage):
             ctx.metrics["oom_retry"] = True
             return self._attempt(ctx, worker, work, retry, 2).checked()
         except WorkerUnavailableError as exc:
-            raise StageError(str(exc), UNAVAILABLE_HINTS) from exc
+            raise StageError(str(exc), UNAVAILABLE_HINTS, code="recon.image_unavailable") from exc
         except WorkerError as exc:
-            raise StageError(str(exc), [TIMEOUT_HINT]) from exc
+            raise StageError(str(exc), [TIMEOUT_HINT], code="recon.train_timeout") from exc
         finally:
             # nvidia-smi per container PID includes the CUDA context; without it only the
             # allocator peak recorded by _attempt remains (a lower bound, flagged).
@@ -324,7 +326,11 @@ class _Attempt:
     @property
     def metrics(self) -> TrainResult:
         if self.result is None:  # checked() guarantees a result
-            raise StageError("Das Training hat keine Messwerte geschrieben.", [LOG_HINT])
+            raise StageError(
+                "Das Training hat keine Messwerte geschrieben.",
+                [LOG_HINT],
+                code="recon.prepare_failed",
+            )
         return self.result
 
     def checked(self) -> _Attempt:
@@ -334,8 +340,13 @@ class _Attempt:
             raise OutOfMemoryError(
                 "Der Grafikspeicher hat auch mit kleineren Werten nicht gereicht.",
                 [GPU_OOM_HINT],
+                code="common.gpu_oom",
             )
         if self.code != TrainExit.OK or self.result is None or not self.result.ok:
             message = f"Das Training ist fehlgeschlagen (Code {self.code})"
-            raise StageError(f"{message}: {detail}." if detail else f"{message}.", [LOG_HINT])
+            raise StageError(
+                f"{message}: {detail}." if detail else f"{message}.",
+                [LOG_HINT],
+                code="recon.prepare_failed",
+            )
         return self

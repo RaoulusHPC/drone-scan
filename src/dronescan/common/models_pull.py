@@ -37,6 +37,10 @@ _CHUNK_BYTES = 1024 * 1024
 class PullError(RuntimeError):
     """Download failed or the file does not match models.lock; message names cause and remedy."""
 
+    def __init__(self, message: str, code: str = "models.download_failed") -> None:
+        super().__init__(message)
+        self.code = code  # id from error_catalog.yaml
+
 
 class PullResult(StrEnum):
     DOWNLOADED = "heruntergeladen"
@@ -67,7 +71,8 @@ def _write_error(entry: ModelEntry, exc: OSError) -> PullError:
     return PullError(
         f"{entry.name}: Datei im Modellverzeichnis nicht les- oder schreibbar "
         f"({exc.strerror or exc}). Abhilfe: freien Speicherplatz und Schreibrechte prüfen "
-        "(--models-dir bzw. DRONESCAN_MODELS_DIR)."
+        "(--models-dir bzw. DRONESCAN_MODELS_DIR).",
+        code="models.write_failed",
     )
 
 
@@ -103,7 +108,8 @@ def pull_model(
                 f"{entry.name}: SHA-256 der heruntergeladenen Datei ({digest}) weicht von "
                 f"models.lock ({entry.sha256}) ab. Download verworfen, Abbruch. Abhilfe: später "
                 "erneut versuchen; tritt es wieder auf, hat sich die Datei an der Quelle "
-                "geändert und der Eintrag muss neu geprüft werden (PO, license-auditor)."
+                "geändert und der Eintrag muss neu geprüft werden (PO, license-auditor).",
+                code="models.hash_mismatch",
             )
         os.replace(part, target)
     except OSError as exc:

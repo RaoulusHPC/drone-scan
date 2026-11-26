@@ -29,9 +29,10 @@ import typer
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from dronescan import __version__
+from dronescan.common import error_catalog as catalog
 from dronescan.common import gpu
 from dronescan.common.config import ProfileError, Settings, describe_validation_error, load_settings
-from dronescan.common.gpu_lock import GpuLockError, stage_gpu_lock
+from dronescan.common.gpu_lock import GpuBusyError, GpuLockError, stage_gpu_lock
 
 MANIFEST_NAME = "manifest.json"
 _HASH_CHUNK = 1024 * 1024
@@ -58,55 +59,53 @@ _STATUS: dict[ExitCode, Status] = {
     ExitCode.OOM: "oom",
 }
 
-GPU_OOM_HINT = (
-    "Der Grafikspeicher hat nicht gereicht. Abhilfe: Profil 'low_vram_6gb' verwenden, andere "
-    "GPU-Programme schließen oder ein kürzeres Video bzw. weniger Räume pro Scan verarbeiten."
-)
-RAM_OOM_HINT = (
-    "Der Arbeitsspeicher hat nicht gereicht. Abhilfe: andere Programme schließen oder ein "
-    "kürzeres Video bzw. weniger Räume pro Scan verarbeiten."
-)
-ERROR_HINT = (
-    "Unerwarteter Fehler. Abhilfe: mit --force erneut ausführen; tritt er wieder auf, "
-    "Log-Ausgabe und manifest.json an das Entwicklungsteam geben."
-)
-INTERRUPTED = "Abgebrochen (Strg+C bzw. Prozess beendet)."
-INTERRUPTED_HINT = "Abhilfe: Stufe erneut starten; bereits erzeugte Dateien werden neu berechnet."
-INPUT_MISSING_HINT = (
-    "Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen und den Pfad mit "
-    "--scan prüfen."
-)
+GPU_OOM_HINT = catalog.hint("common.gpu_oom")
+RAM_OOM_HINT = catalog.hint("common.ram_oom")
+ERROR_HINT = catalog.hint("common.unexpected")
+INTERRUPTED = catalog.cause("common.interrupted")
+INTERRUPTED_HINT = catalog.hint("common.interrupted")
+INPUT_MISSING_HINT = catalog.hint("common.input_missing")
+NO_FLIGHT_HINT = catalog.hint("common.no_flight")
+WRITE_HINT = catalog.hint("common.write_failed")
 
 
 class StageError(Exception):
     """Expected stage failure with a user-facing (German) message and hints."""
 
     exit_code: ClassVar[ExitCode] = ExitCode.ERROR
+    default_code: ClassVar[str] = "common.unexpected"
 
-    def __init__(self, message: str, hints: list[str] | None = None) -> None:
+    def __init__(
+        self, message: str, hints: list[str] | None = None, *, code: str | None = None
+    ) -> None:
         super().__init__(message)
         self.hints = list(hints or [])
+        # Code from error_catalog.yaml; every raise site names its own (checked by a test).
+        self.code = code or self.default_code
 
 
 class InputMissingError(StageError):
     exit_code: ClassVar[ExitCode] = ExitCode.INPUT_MISSING
+    default_code: ClassVar[str] = "common.input_missing"
 
 
 class QualityError(StageError):
     """Input quality is insufficient; always carries concrete hints (exit 20)."""
 
     exit_code: ClassVar[ExitCode] = ExitCode.QUALITY_INSUFFICIENT
+    default_code: ClassVar[str] = "ingest.quality_red"
 
-    def __init__(self, message: str, hints: list[str]) -> None:
+    def __init__(self, message: str, hints: list[str], *, code: str | None = None) -> None:
         if not hints:
             raise ValueError("QualityError needs at least one hint for the user")
-        super().__init__(message, hints)
+        super().__init__(message, hints, code=code)
 
 
 class OutOfMemoryError(StageError):
     """An external GPU tool ran out of VRAM (exit 30)."""
 
     exit_code: ClassVar[ExitCode] = ExitCode.OOM
+    default_code: ClassVar[str] = "common.gpu_oom"
 
 
 class Manifest(BaseModel):
@@ -126,6 +125,7 @@ class Manifest(BaseModel):
     status: Status
     exit_code: int
     error: str | None = None
+    error_code: str | None = None  # id from error_catalog.yaml when status is not ok
     warnings: list[str] = []
     hints: list[str] = []
     metrics: dict[str, Any] = {}  # measured results of the stage (no image content)
@@ -275,6 +275,7 @@ class _Run:
     params: dict[str, Any] = field(default_factory=dict)
     peak: float | None = None
     error: str | None = None
+    error_code: str | None = None
     warnings: list[str] = field(default_factory=list)
     hints: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -303,6 +304,7 @@ class _Run:
             status=_STATUS[code],
             exit_code=int(code),
             error=None if self.error is None else _redact(self.error, self.scan_dir),
+            error_code=self.error_code,
             warnings=self.warnings,
             hints=self.hints,
             metrics=self.metrics,
@@ -334,7 +336,8 @@ def run_stage(stage: Stage, scan_dir: Path, settings: Settings, force: bool = Fa
     if not scan_dir.is_dir():
         # Never create directories for a mistyped --scan path.
         run.error = f"Scan-Verzeichnis '{scan_dir.name}' existiert nicht."
-        run.hints.append("Abhilfe: Pfad mit --scan prüfen bzw. den Scan zuerst anlegen.")
+        run.error_code = "common.scan_dir_missing"
+        run.hints.extend(catalog.hints(run.error_code))
         log.info("stage_failed", stage=stage.name, exit_code=int(ExitCode.INPUT_MISSING))
         return StageResult(
             ExitCode.INPUT_MISSING, skipped=False, manifest=run.manifest(ExitCode.INPUT_MISSING)
@@ -396,31 +399,38 @@ def _run_locked(
         )
         stage.run(ctx)
     except KeyboardInterrupt:
-        run.error = INTERRUPTED
+        run.error, run.error_code = INTERRUPTED, "common.interrupted"
         run.hints.append(INTERRUPTED_HINT)
         _collect(run, ctx, gpu_started)
         _finish(run, ExitCode.ERROR, acquiring)
         raise
     except StageError as exc:
-        code, run.error = exc.exit_code, str(exc)
+        code, run.error, run.error_code = exc.exit_code, str(exc), exc.code
         run.hints.extend(exc.hints)
     except _OutsideScanError as exc:
         code = ExitCode.ERROR
         run.error = f"Eingabe '{exc}' liegt außerhalb des Scan-Verzeichnisses."
-        run.hints.append("Abhilfe: Dateien in das Scan-Verzeichnis importieren (Stufe 'import').")
+        run.error_code = "common.outside_scan"
+        run.hints.extend(catalog.hints(run.error_code))
     except GpuLockError as exc:
         code, run.error = ExitCode.ERROR, exc.cause
+        busy = isinstance(exc, GpuBusyError)
+        run.error_code = "common.gpu_busy" if busy else "common.gpu_lock_unusable"
         run.hints.append(f"Abhilfe: {exc.remedy}")
     except gpu.GpuUnavailableError as exc:
         code, run.error = ExitCode.ERROR, exc.cause
+        run.error_code = "common.gpu_unavailable"
         run.hints.append(f"Abhilfe: {exc.remedy}")
     except Exception as exc:
         run.error = f"{type(exc).__name__}: {exc}"
         if is_oom(exc):
             code = ExitCode.OOM
-            run.hints.append(RAM_OOM_HINT if isinstance(exc, MemoryError) else GPU_OOM_HINT)
+            ram = isinstance(exc, MemoryError)
+            run.error_code = "common.ram_oom" if ram else "common.gpu_oom"
+            run.hints.append(RAM_OOM_HINT if ram else GPU_OOM_HINT)
         else:
             code = ExitCode.ERROR
+            run.error_code = "common.unexpected"
             run.hints.append(ERROR_HINT)
     _collect(run, ctx, gpu_started)
     return _finish(run, code, acquiring)
@@ -487,6 +497,7 @@ def register_stage(
         try:
             settings = load_settings(profile)
         except ProfileError as exc:
+            typer.echo("Fehlercode: cli.usage (docs/fehlercodes.md)", err=True)
             raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
         except ValidationError as exc:
             typer.echo(describe_validation_error(exc, profile), err=True)
@@ -504,4 +515,6 @@ def register_stage(
             typer.echo(f"Warnung: {warning}", err=True)
         for hint in manifest.hints:
             typer.echo(f"Hinweis: {hint}", err=failed)
+        if failed and manifest.error_code:
+            typer.echo(f"Fehlercode: {manifest.error_code} (docs/fehlercodes.md)", err=True)
         raise typer.Exit(code=int(result.exit_code))

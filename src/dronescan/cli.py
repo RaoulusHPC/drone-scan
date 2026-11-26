@@ -41,6 +41,11 @@ app = typer.Typer(
 )
 
 
+def _echo_code(code: str) -> None:
+    """Print the catalog code of a failure (docs/fehlercodes.md explains cause and remedy)."""
+    typer.echo(f"Fehlercode: {code} (docs/fehlercodes.md)", err=True)
+
+
 def _print_version(value: bool) -> None:
     if value:
         typer.echo(f"drone-scan {__version__}")
@@ -77,9 +82,11 @@ def show_config(
     try:
         settings = load_settings(profile)
     except ProfileError as exc:
+        _echo_code("cli.usage")
         raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
     except ValidationError as exc:
         typer.echo(describe_validation_error(exc, profile), err=True)
+        _echo_code("cli.config_invalid")
         raise typer.Exit(code=1) from exc
     typer.echo(settings.model_dump_json(indent=2))
 
@@ -137,11 +144,13 @@ def flight_add(
     try:
         profile = load_camera(camera) if camera is not None else None
     except CameraError as exc:
+        _echo_code("capture.camera_profile_invalid")
         raise typer.BadParameter(str(exc), param_hint="--camera") from exc
     try:
         flight = add_flight(resolve_scan_dir(workspace, scan), video, camera=profile)
     except ScanError as exc:
         typer.echo(str(exc), err=True)
+        _echo_code("capture.scan_invalid")
         raise typer.Exit(code=int(ExitCode.INPUT_MISSING)) from exc
     typer.echo(
         f"Flug {flight.id} hinzugefügt: {flight.display_width}x{flight.display_height}, "
@@ -216,9 +225,11 @@ def camera_calibrate(
     try:
         settings = load_settings(profile)
     except ProfileError as exc:
+        _echo_code("cli.usage")
         raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
     except ValidationError as exc:
         typer.echo(describe_validation_error(exc, profile), err=True)
+        _echo_code("cli.config_invalid")
         raise typer.Exit(code=int(ExitCode.ERROR)) from exc
     board = Board(cast(Pattern, pattern), cols, rows, square_mm, marker_mm, dictionary)
     try:
@@ -227,6 +238,7 @@ def camera_calibrate(
         typer.echo(f"Kalibrierung: {exc}", err=True)
         for hint in exc.hints:
             typer.echo(f"Hinweis: {hint}", err=True)
+        _echo_code(exc.code)
         raise typer.Exit(code=int(exc.exit_code)) from exc
     try:
         write_camera(result.profile, target)
@@ -236,6 +248,7 @@ def camera_calibrate(
             "und Schreibrechte prüfen oder mit --output einen anderen Pfad angeben.",
             err=True,
         )
+        _echo_code("capture.calibration_write_failed")
         raise typer.Exit(code=int(ExitCode.ERROR)) from exc
     typer.echo(
         f"Kameraprofil gespeichert: {target.name} ({result.profile.model}, "
@@ -265,6 +278,7 @@ def _read_lock(lock: Path) -> ModelsLock:
             "Pfad mit --lock bzw. DRONESCAN_MODELS_LOCK angeben.",
             err=True,
         )
+        _echo_code("models.lock_missing")
         raise typer.Exit(code=int(ExitCode.INPUT_MISSING))
     try:
         return load_models_lock(lock)
@@ -275,6 +289,7 @@ def _read_lock(lock: Path) -> ModelsLock:
             "version, source, url (https), sha256, weights_license und code_license.",
             err=True,
         )
+        _echo_code("models.lock_invalid")
         raise typer.Exit(code=int(ExitCode.ERROR)) from exc
 
 
@@ -314,6 +329,7 @@ def models_pull(
     registry = _read_lock(lock)
     unknown = [name for name in names or [] if registry.get(name) is None]
     if unknown:
+        _echo_code("models.unknown_name")
         known = ", ".join(m.name for m in registry.models) or "keine"
         raise typer.BadParameter(
             f"Nicht in models.lock: {', '.join(unknown)}. Gelistet: {known}. Abhilfe: nur "
@@ -330,6 +346,7 @@ def models_pull(
             result = pull_model(entry, models_dir, force=force, progress=typer.echo)
         except PullError as exc:
             typer.echo(str(exc), err=True)
+            _echo_code(exc.code)
             raise typer.Exit(code=int(ExitCode.ERROR)) from exc
         typer.echo(f"{entry.name}: {result}, SHA-256 geprüft.")
 
