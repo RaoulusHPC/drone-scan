@@ -23,7 +23,7 @@ from dronescan.common.stage import (
 from dronescan.ingest.stage import TOO_FEW_HINTS, IngestStage
 
 SRC = Path(dronescan.__file__).parent
-STAGE_FILES = [SRC / name / "stage.py" for name in ("ingest", "sfm", "recon")]
+STAGE_FILES = [SRC / name / "stage.py" for name in ("ingest", "sfm", "recon", "export")]
 STAGE_ERRORS = {"StageError", "InputMissingError", "QualityError", "OutOfMemoryError"}
 EXIT_OF = {"StageError": 1, "InputMissingError": 10, "QualityError": 20, "OutOfMemoryError": 30}
 # Developer tooling and internal signals, never shown to users of the pipeline.
@@ -34,7 +34,7 @@ VALID_EXIT_CODES = {int(code) for code in ExitCode} | {2}
 def _error_classes() -> dict[str, ast.ClassDef]:
     """Exception classes defined in the user-facing packages (parsed, torch is not imported)."""
     classes: dict[str, ast.ClassDef] = {}
-    for package in ("common", "capture", "ingest", "sfm", "recon"):
+    for package in ("common", "capture", "ingest", "sfm", "recon", "export"):
         for path in sorted((SRC / package).rglob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):

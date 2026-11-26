@@ -29,6 +29,7 @@ from dronescan.common.config import ProfileError, describe_validation_error, loa
 from dronescan.common.logging import configure_logging
 from dronescan.common.models_lock import ModelsLock, load_models_lock, model_status
 from dronescan.common.stage import ExitCode, register_stage
+from dronescan.export.stage import CompressStage
 from dronescan.ingest.stage import IngestStage
 from dronescan.recon.stage import ReconStage
 from dronescan.sfm.stage import SfmStage
@@ -354,3 +355,4 @@ def models_pull(
 register_stage(app, IngestStage)
 register_stage(app, SfmStage)
 register_stage(app, ReconStage)
+register_stage(app, CompressStage)

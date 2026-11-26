@@ -282,6 +282,24 @@ class SplatSettings(_Section):
         return self
 
 
+class CompressSettings(_Section):
+    """Stage ``compress``: SPZ scene for playback on phones (KAN-42, Q-7)."""
+
+    max_gaussians: PositiveInt = Field(
+        description="Keep at most this many Gaussians (the most important ones); Q-7: 1.5 M."
+    )
+    min_opacity: float = Field(
+        ge=0,
+        lt=1,
+        description="Drop Gaussians below this opacity first (invisible after 8-bit alpha).",
+    )
+    sh_degree: int = Field(
+        ge=0,
+        le=3,
+        description="Spherical-harmonics degree in the SPZ file (lower = smaller and faster).",
+    )
+
+
 class SearchSettings(_Section):
     detector_batch_size: PositiveInt
 
@@ -325,6 +343,7 @@ class Settings(BaseSettings):
     sfm: SfmSettings
     calibration: CalibrationSettings
     splat: SplatSettings
+    compress: CompressSettings
     search: SearchSettings
 
     @classmethod

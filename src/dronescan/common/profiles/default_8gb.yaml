@@ -66,5 +66,9 @@ splat: # stage recon (KAN-41); unmeasured on an 8 GB card: estimate ~4.5-5 GiB t
   oom_retry_max_gaussians: 1500000
   oom_retry_image_edge_px: 960
   timeout_s: 21600
+compress: # stage compress (KAN-42): SPZ for phones, CPU only
+  max_gaussians: 1500000 # Q-7: <= 1.5 M Gaussians for >= 30 fps on mid-range Android
+  min_opacity: 0.005 # ~1 LSB of the 8-bit alpha: hardly visible
+  sh_degree: 1 # view-dependent colour of degree 1 only: smaller file, less GPU load on phones
 search:
   detector_batch_size: 8
