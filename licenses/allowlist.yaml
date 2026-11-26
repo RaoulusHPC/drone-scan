@@ -26,6 +26,12 @@ licenses:
 # NVSHMEM, cuda-bindings and the nvidia/cuda base images are proprietary but allowed like the
 # driver. They live in the Docker images only (not in uv.lock) and are not checked by the gate.
 
+# Intel IPP-ICV (Intel Simplified Software License, PO 2026-11-26, KAN-29): statically bundled in
+# the opencv-python-headless wheel (package license Apache-2.0). Proprietary but freely
+# redistributable, also commercially. Allowed only via the optional extra for `drone-scan camera
+# calibrate`; not part of the Docker images. Re-check before adding OpenCV to an image or a
+# release bundle. Not visible to the gate, which reads only the package metadata.
+
 # Additionally allowed for model weights and data in models.lock (ADR-0007: CC-BY-4.0 for data).
 data_licenses:
   - CC-BY-4.0
