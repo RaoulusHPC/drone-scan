@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import struct
 import sys
@@ -19,11 +20,19 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
+from numpy.typing import NDArray
 from typer.testing import CliRunner
 
 from dronescan.cli import app
 from dronescan.common.config import Settings, load_settings
-from dronescan.common.stage import GPU_OOM_HINT, ExitCode, Manifest, StageResult, run_stage
+from dronescan.common.stage import (
+    GPU_OOM_HINT,
+    RAM_OOM_HINT,
+    ExitCode,
+    Manifest,
+    StageResult,
+    run_stage,
+)
 from dronescan.recon.job import TrainJob
 from dronescan.recon.scene import (
     SceneError,
@@ -34,9 +43,10 @@ from dronescan.recon.scene import (
     write_ply,
 )
 from dronescan.recon.stage import OOM_RETRY_WARNING, ReconStage
-from dronescan.recon.worker import WORKER_IMAGE, ContainerVramSampler
+from dronescan.recon.worker import WORKER_IMAGE, ContainerVramSampler, docker_image_id
 from dronescan.sfm.colmap import COLMAP_IMAGE
-from tests.test_sfm import make_scan
+from tests.synthetic_room import ROOM, views, write_jpegs
+from tests.test_sfm import MAX_PROCESS_MIB, make_scan
 
 ROOT = Path(__file__).resolve().parents[1]
 runner = CliRunner()
@@ -87,12 +97,16 @@ def with_splat(**values: Any) -> Settings:
 # ---------- fake tools ----------
 
 FAKE_DOCKER = """#!{python}
-import csv, json, sys
+import csv, json, sys, time
 from pathlib import Path
 
 state = Path({state!r})
-config = json.loads((state / "config.json").read_text())
 args = sys.argv[1:]
+if args[0] == "top":  # polled by the VRAM sampler while the trainer runs: no shared state
+    print("PID")
+    print("4242")
+    sys.exit(0)
+config = json.loads((state / "config.json").read_text())
 with (state / "calls.jsonl").open("a") as handle:
     handle.write(json.dumps(args) + "\\n")
 if args[0] == "image":
@@ -101,10 +115,6 @@ if args[0] == "image":
     print("sha256:" + args[-1])
     sys.exit(0)
 if args[0] == "kill":
-    sys.exit(0)
-if args[0] == "top":
-    print("PID")
-    print("4242")
     sys.exit(0)
 
 mounts = {{}}
@@ -151,12 +161,16 @@ options = dict(zip(tail[::2], tail[1::2]))
 job = json.loads(host(options["--job"]).read_text())
 attempts = config["attempts"]
 code, result = attempts.pop(0) if attempts else (0, {{}})
-(state / "config.json").write_text(json.dumps(config))
+tmp = state / "config.json.tmp"
+tmp.write_text(json.dumps(config))
+tmp.replace(state / "config.json")
 raws = sorted(p.name for p in host(options["--raw"]).rglob("*.rgb"))
 with (state / "jobs.jsonl").open("a") as handle:
     handle.write(json.dumps({{"job": job, "raws": raws}}) + "\\n")
 if result is None:
     sys.exit(code)
+if "hang_s" in result:
+    time.sleep(result.pop("hang_s"))
 out = host(options["--out"])
 out.mkdir(parents=True)
 metrics = {{
@@ -423,6 +437,62 @@ def test_second_oom_ends_with_exit_30(scan: Path, docker: FakeDocker) -> None:
 # ---------- failures ----------
 
 
+def test_trainer_killed_by_the_kernel_is_exit_30_without_retry(
+    scan: Path, docker: FakeDocker
+) -> None:
+    """Given the trainer container is killed with SIGKILL (137, host RAM out of memory),
+    When the stage runs,
+    Then it exits with 30 and the RAM hint; a smaller GPU profile would not help, no retry.
+    """
+    docker.trainer((137, None))
+
+    result = recon(scan)
+
+    assert result.exit_code is ExitCode.OOM
+    assert RAM_OOM_HINT in result.manifest.hints
+    assert len(docker.jobs()) == 1
+
+
+def test_container_that_cannot_start_is_reported(scan: Path, docker: FakeDocker) -> None:
+    """Given `docker run` itself fails (exit 125, e.g. no NVIDIA runtime),
+    When the stage runs,
+    Then it exits with 1 and the docker/GPU hints.
+    """
+    docker.trainer((125, None))
+
+    result = recon(scan)
+
+    assert result.exit_code is ExitCode.ERROR
+    assert "Worker-Container" in (result.manifest.error or "")
+    assert any("make docker-check" in hint for hint in result.manifest.hints)
+
+
+def test_hanging_trainer_is_stopped_after_the_timeout(scan: Path, docker: FakeDocker) -> None:
+    """Given a trainer that does not finish within splat.timeout_s,
+    When the stage runs,
+    Then the container is killed (it holds the GPU lock) and the stage exits with 1 and a hint.
+    """
+    docker.trainer((0, {"hang_s": 30}))
+
+    result = recon(scan, with_splat(timeout_s=2))
+
+    assert result.exit_code is ExitCode.ERROR
+    assert any("TIMEOUT_S" in hint for hint in result.manifest.hints)
+    assert docker.calls("kill")
+
+
+def test_vram_limit_is_part_of_the_cache_key(scan: Path, docker: FakeDocker) -> None:
+    """Given a result trained under 5.0 GiB,
+    When the limit is raised,
+    Then the stage trains again (the limit decides about the OOM retry and its detail).
+    """
+    recon(scan)
+
+    again = recon(scan, load_settings().model_copy(update={"vram_limit_gb": 6.0}))
+
+    assert not again.skipped
+
+
 def test_missing_poses_exit_10(tmp_path: Path, docker: FakeDocker) -> None:
     """Given a scan where `sfm` has not run,
     When the stage runs,
@@ -659,3 +729,87 @@ def test_binary_and_text_models_give_the_same_scene(tmp_path: Path) -> None:
     assert np.array_equal(from_binary.points, from_text.points)
     assert np.array_equal(from_binary.colors, from_text.colors)
     assert from_binary.colors[1].tolist() == pytest.approx([200 / 255, 100 / 255, 0.0])
+
+
+# ---------- GPU (host): the real stage with the profile values (reviewer MAJOR 2) ----------
+
+
+def _quat_wxyz(m: NDArray[np.float64]) -> tuple[float, float, float, float]:
+    """Rotation matrix to unit quaternion (w, x, y, z), stable for all angles (Shepperd)."""
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+    if trace > 0:
+        s = 2 * np.sqrt(trace + 1)
+        q = (s / 4, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s)
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = 2 * np.sqrt(1 + m[0, 0] - m[1, 1] - m[2, 2])
+        q = ((m[2, 1] - m[1, 2]) / s, s / 4, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s)
+    elif m[1, 1] > m[2, 2]:
+        s = 2 * np.sqrt(1 + m[1, 1] - m[0, 0] - m[2, 2])
+        q = ((m[0, 2] - m[2, 0]) / s, (m[0, 1] + m[1, 0]) / s, s / 4, (m[1, 2] + m[2, 1]) / s)
+    else:
+        s = 2 * np.sqrt(1 + m[2, 2] - m[0, 0] - m[1, 1])
+        q = ((m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, s / 4)
+    w, x, y, z = (float(value) for value in q)
+    return (w, x, y, z)
+
+
+def write_room_scan(scan_dir: Path, frames: int, points: int, size: tuple[int, int]) -> None:
+    """Scan with rendered views of the synthetic room and their exact poses as the sfm model.
+
+    ``points`` random wall points form the SfM cloud, so MCMC starts at its cap at once.
+    """
+    make_scan(scan_dir, frames, images=False)
+    poses = views(frames, turns=0.5)
+    write_jpegs(scan_dir / "ingest" / "f01" / "frames", poses, size)
+    write_sfm(scan_dir, frames)
+    sparse = scan_dir / "sfm" / "colmap" / "sparse" / "0"
+    width, height = size
+    focal = 0.8 * width
+    (sparse / "cameras.txt").write_text(
+        f"1 PINHOLE {width} {height} {focal} {focal} {width / 2} {height / 2}\n"
+    )
+    rows = []
+    for index, view in enumerate(poses, start=1):
+        quat = _quat_wxyz(view.rotation)
+        translation = -view.rotation @ view.centre
+        values = " ".join(f"{v:.9f}" for v in (*quat, *translation))
+        rows.append(f"{index} {values} 1 f01/frames/{index:06d}.jpg\n\n")
+    (sparse / "images.txt").write_text("".join(rows))
+    rng = np.random.default_rng(0)
+    xyz = rng.random((points, 3)) * ROOM
+    axis = rng.integers(0, 3, points)
+    xyz[np.arange(points), axis] = rng.integers(0, 2, points) * ROOM[axis]  # onto a wall
+    grey = rng.integers(30, 230, points)
+    lines = (
+        f"{i} {x:.4f} {y:.4f} {z:.4f} {g} {g} {g} 0.5\n"
+        for i, ((x, y, z), g) in enumerate(zip(xyz, grey, strict=True), start=1)
+    )
+    with (sparse / "points3D.txt").open("w") as handle:
+        handle.writelines(lines)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+def test_profile_values_stay_within_5_5_gib_per_process(tmp_path: Path) -> None:
+    """Given the low_vram_6gb profile (MCMC cap 1.5 M, 1200 px, SH degree 3) and a synthetic
+    room whose SfM cloud already has 1.5 M points (the cap is reached from the first step),
+    When the real stage runs 300 iterations on the GTX 1060 under DRONESCAN_VRAM_LIMIT_GB=5.0,
+    Then it succeeds without OOM retry and the trainer process peak incl. CUDA context
+    (nvidia-smi) stays within 5.5 GiB (Q-2, AC 1).
+    """
+    for image in (WORKER_IMAGE, COLMAP_IMAGE):
+        if docker_image_id(image) == "missing":
+            pytest.skip(f"image {image} missing: docker compose build")
+    scan = tmp_path / "scan"
+    write_room_scan(scan, frames=16, points=1_500_000, size=(1600, 900))
+
+    result = recon(scan, with_splat(max_iterations=300))
+
+    assert result.exit_code is ExitCode.OK, (result.manifest.error, result.manifest.hints)
+    metrics = result.manifest.metrics
+    assert metrics["oom_retry"] is False
+    assert metrics["init_points_used"] == 1_500_000 and metrics["image_edge_px"] == 1200
+    assert metrics["peak_vram_source"] == "process"
+    assert result.manifest.peak_vram_mb is not None
+    assert result.manifest.peak_vram_mb <= MAX_PROCESS_MIB
+    print(f"\nprofile peak: {result.manifest.peak_vram_mb:.0f} MiB, {metrics}")

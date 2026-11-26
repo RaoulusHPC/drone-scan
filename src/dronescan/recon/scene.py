@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Undistorted COLMAP scene and splat files for stage ``recon`` (numpy only, host and worker).
 
-The scene is the PINHOLE text model written by COLMAP's ``image_undistorter`` plus one raw
+The scene is the PINHOLE model (binary, or text in tests) written by COLMAP's
+``image_undistorter`` plus one raw
 RGB file (``<image name>.rgb``, 8 bit, row-major) per image. The splat is written as the usual
 3DGS PLY (positions, SH coefficients, logit opacity, log scales, rotation quaternions).
 """

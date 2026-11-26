@@ -29,6 +29,7 @@ _US_PER_S = 1_000_000
 _GRID_EPS = 1e-3  # keeps frames that lie exactly on the sampling grid (float rounding)
 _VERSION = re.compile(r"^ffmpeg version (\S+)")
 _JPEG_PATTERN = "%06d.jpg"
+_IMAGE_TIMEOUT_S = 60  # one image takes well below a second
 
 log = structlog.get_logger(__name__)
 
@@ -170,7 +171,12 @@ def image_to_rgb(image: Path, raw: Path, width: int, height: int) -> None:
     raw.parent.mkdir(parents=True, exist_ok=True)
     command = ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error", "-y", "-i", str(image)]
     command += ["-f", "rawvideo", "-pix_fmt", "rgb24", str(raw)]
-    proc = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        proc = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=_IMAGE_TIMEOUT_S
+        )
+    except subprocess.TimeoutExpired as exc:  # the caller holds the GPU lock
+        raise FfmpegError("ffmpeg antwortet beim Lesen eines Einzelbilds nicht.") from exc
     if proc.returncode != 0:
         log.error("ffmpeg_failed", step="image_to_rgb", returncode=proc.returncode)
         raise FfmpegError("Ein entzerrtes Einzelbild konnte nicht gelesen werden.")

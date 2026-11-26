@@ -17,6 +17,7 @@ undistorted images are removed afterwards; logs stay in ``recon/work/logs/``.
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -130,8 +131,11 @@ class ReconStage(Stage):
         return [sfm / COLMAP_DIR / SPARSE_DIR] + [ingest / f.id / FRAMES_DIR for f in flights]
 
     def params(self, settings: Settings) -> dict[str, Any]:
-        # The timeout does not change the result.
-        return settings.splat.model_dump(exclude={"timeout_s"})
+        # The timeout does not change the result; the VRAM limit can (OOM retry with less detail).
+        return {
+            **settings.splat.model_dump(exclude={"timeout_s"}),
+            "vram_limit_gb": settings.vram_limit_gb,
+        }
 
     def tool_versions(self) -> dict[str, str]:
         # Only the tags: a stopped docker must not invalidate a valid result.
@@ -309,28 +313,29 @@ class ReconStage(Stage):
             ctx.hint(OVERFIT_HINT)
 
 
+@dataclass(frozen=True)
 class _Attempt:
     """Outcome of one trainer run."""
 
-    def __init__(self, attempt: int, code: int, result: TrainResult | None) -> None:
-        self.attempt = attempt
-        self.code = code
-        self._result = result
+    attempt: int
+    code: int
+    result: TrainResult | None
 
     @property
     def metrics(self) -> TrainResult:
-        assert self._result is not None
-        return self._result
+        if self.result is None:  # checked() guarantees a result
+            raise StageError("Das Training hat keine Messwerte geschrieben.", [LOG_HINT])
+        return self.result
 
     def checked(self) -> _Attempt:
         """Self if the training succeeded, else the matching StageError."""
-        detail = self._result.error if self._result and self._result.error else None
+        detail = self.result.error if self.result and self.result.error else None
         if self.code == TrainExit.OOM:
             raise OutOfMemoryError(
                 "Der Grafikspeicher hat auch mit kleineren Werten nicht gereicht.",
                 [GPU_OOM_HINT],
             )
-        if self.code != TrainExit.OK or self._result is None or not self._result.ok:
+        if self.code != TrainExit.OK or self.result is None or not self.result.ok:
             message = f"Das Training ist fehlgeschlagen (Code {self.code})"
             raise StageError(f"{message}: {detail}." if detail else f"{message}.", [LOG_HINT])
         return self

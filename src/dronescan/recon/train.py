@@ -29,6 +29,7 @@ import torch
 import torch.nn.functional as functional
 from gsplat import rasterization
 from gsplat.strategy import MCMCStrategy
+from pydantic import ValidationError
 
 from dronescan.common.config import load_settings
 from dronescan.common.gpu import apply_vram_limit
@@ -44,6 +45,16 @@ from dronescan.recon.scene import (
 )
 
 SH_C0 = 0.28209479177387814  # zeroth spherical-harmonics basis function
+PSNR_MAX_DB = 100.0  # identical images: a finite value, JSON has no infinity
+SCENE_SCALE_MARGIN = 1.1  # scene radius = largest camera distance from the centre, plus 10 %
+MIN_SCENE_SCALE = 1e-3  # a single camera position must not give a zero scale
+MIN_NEIGHBOUR_DISTANCE = 1e-6  # duplicate SfM points: avoid log(0) for the initial scale
+SINGLE_POINT_SCALE = 0.01  # initial size of a lone point, relative to the scene scale
+ADAM_EPS = 1e-15  # as in the gsplat example trainer (tiny gradients of small Gaussians)
+JOB_MISMATCH = (
+    "Der Trainingsauftrag passt nicht zum Worker-Image. Abhilfe: Image neu bauen mit "
+    "`docker compose build worker`."
+)
 MIB = 1024**2
 SSIM_WEIGHT = 0.2
 OPACITY_REG = 0.01  # MCMC regularisation of opacities and scales
@@ -113,7 +124,7 @@ def ssim_tensor(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 def psnr(prediction: torch.Tensor, target: torch.Tensor) -> float:
     mse = float(torch.mean((prediction - target) ** 2))
-    return math.inf if mse == 0.0 else -10.0 * math.log10(mse)
+    return PSNR_MAX_DB if mse == 0.0 else min(PSNR_MAX_DB, -10.0 * math.log10(mse))
 
 
 # ---------- data ----------
@@ -155,7 +166,9 @@ def load_data(scene_dir: Path, raw_dir: Path, max_edge: int, device: torch.devic
         intrinsics.append(torch.tensor([[view.fx, 0, view.cx], [0, view.fy, view.cy], [0, 0, 1]]))
         centres.append(-rotation.T @ translation)
     centre_stack = torch.stack(centres)
-    scene_scale = float((centre_stack - centre_stack.mean(0)).norm(dim=1).max()) * 1.1
+    scene_scale = (
+        float((centre_stack - centre_stack.mean(0)).norm(dim=1).max()) * SCENE_SCALE_MARGIN
+    )
     return Data(
         views=views,
         viewmats=torch.stack(viewmats).to(device),
@@ -163,7 +176,7 @@ def load_data(scene_dir: Path, raw_dir: Path, max_edge: int, device: torch.devic
         images=[_load_image(raw_dir, o, v) for o, v in zip(originals, views, strict=True)],
         points=torch.from_numpy(scene.points),
         colors=torch.from_numpy(scene.colors),
-        scene_scale=max(scene_scale, 1e-3),
+        scene_scale=max(scene_scale, MIN_SCENE_SCALE),
     )
 
 
@@ -195,9 +208,9 @@ def init_splats(data: Data, sh_degree: int, device: torch.device) -> torch.nn.Pa
             distances = torch.cdist(points[start : start + chunk], points)
             nearest.append(distances.topk(neighbours + 1, largest=False).values[:, 1:])
             del distances
-        dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(1e-6)
+        dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(MIN_NEIGHBOUR_DISTANCE)
     else:
-        dist_avg = torch.full((count,), data.scene_scale * 0.01, device=device)
+        dist_avg = torch.full((count,), data.scene_scale * SINGLE_POINT_SCALE, device=device)
     rest = (sh_degree + 1) ** 2 - 1
     return torch.nn.ParameterDict(
         {
@@ -298,7 +311,7 @@ def train(job: TrainJob, scene_dir: Path, raw_dir: Path, out: Path, result: Trai
                     "name": name,
                 }
             ],
-            eps=1e-15,
+            eps=ADAM_EPS,
         )
         for name, rate in LEARNING_RATES.items()
     }
@@ -375,15 +388,25 @@ def _peaks(result: TrainResult) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Gaussian-Splatting-Training (Stufe recon).")
-    parser.add_argument("--scene", type=Path, required=True, help="undistorted COLMAP text model")
+    parser.add_argument(
+        "--scene", type=Path, required=True, help="undistorted COLMAP model (binary or text)"
+    )
     parser.add_argument("--raw", type=Path, required=True, help="directory with <name>.rgb")
     parser.add_argument("--job", type=Path, required=True, help="TrainJob JSON")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    job = TrainJob.model_validate_json(args.job.read_text(encoding="utf-8"))
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
+    try:
+        job = TrainJob.model_validate_json(args.job.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as exc:  # host and image from different versions
+        traceback.print_exc()
+        failure = TrainResult(
+            ok=False, vram_limit_gb=0.0, error=f"{JOB_MISMATCH} ({type(exc).__name__})"
+        )
+        (out / RESULT_NAME).write_text(failure.model_dump_json(indent=2), encoding="utf-8")
+        return TrainExit.ERROR
     result = TrainResult(
         ok=False,
         vram_limit_gb=job.vram_limit_gb,

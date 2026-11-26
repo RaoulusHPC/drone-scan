@@ -97,6 +97,7 @@ def evaluate(golden: Golden, measured: Measured, vram_limit_gb: float | None = N
 
     ``vram_limit_gb`` (DRONESCAN_VRAM_LIMIT_GB) tightens the golden VRAM ceiling. COLMAP runs in a
     container and ignores the PyTorch allocator limit, so its sampled peak is checked against it.
+    The peaks are process totals incl. CUDA context: stricter than the 5.5 GiB contract on purpose.
     """
     poses = golden.poses
     vram_ceiling = poses.max_peak_vram_mib

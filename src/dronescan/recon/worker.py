@@ -94,9 +94,9 @@ class ContainerVramSampler:
             self.peak = max(used, self.peak or 0.0)
 
     def _run(self) -> None:
-        while not self._stop.is_set():
+        self._sample()  # at least once, even if the run ends before the first interval
+        while not self._stop.wait(_SAMPLE_INTERVAL_S):
             self._sample()
-            self._stop.wait(_SAMPLE_INTERVAL_S)
 
     def __enter__(self) -> Self:
         if shutil.which("nvidia-smi"):
