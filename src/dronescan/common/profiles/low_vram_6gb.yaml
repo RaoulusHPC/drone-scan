@@ -68,3 +68,10 @@ splat: # stage recon (KAN-41), values from spike-01 (sections 6, 7)
   timeout_s: 14400
 search:
   detector_batch_size: 4
+server: # `drone-scan serve` (KAN-52): REST API + job queue, local only
+  host: 127.0.0.1 # loopback only; LAN access (HTTPS) follows in KAN-54
+  port: 8765
+  events_poll_s: 0.5 # SSE progress latency
+  queue_poll_s: 1
+  cancel_grace_s: 30 # after SIGINT the stage writes its manifest, then SIGKILL
+  max_upload_gb: 8

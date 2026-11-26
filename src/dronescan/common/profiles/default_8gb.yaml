@@ -68,3 +68,11 @@ splat: # stage recon (KAN-41); unmeasured on an 8 GB card: estimate ~4.5-5 GiB t
   timeout_s: 21600
 search:
   detector_batch_size: 8
+server: # `drone-scan serve` (KAN-52): REST API + job queue, local only
+  host: 127.0.0.1 # loopback only; LAN access (HTTPS) follows in KAN-54
+  port: 8765
+  events_poll_s: 0.5 # SSE progress latency
+  queue_poll_s: 1
+  cancel_grace_s: 30 # after SIGINT the stage writes its manifest, then SIGKILL
+  max_upload_gb: 8
+  oom_retry_profile: low_vram_6gb # exit 30: the queue retries the stage once with it

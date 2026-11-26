@@ -326,3 +326,95 @@ codes:
     hints:
       - "Abhilfe: Aufruf mit `--help` prüfen."
     exceptions: [ProfileError]
+  # --- server (`drone-scan serve`, REST API and job queue, KAN-52) -----------------------
+  # The API answers with {code, cause, hints}; the exit code is the CLI equivalent.
+  - id: server.invalid_request
+    exit_code: 2
+    scope: server
+    cause: Die Anfrage an die API ist ungültig (fehlendes oder falsches Feld, unbekannte Stufe).
+    hints:
+      - "Abhilfe: Anfrage mit der API-Beschreibung abgleichen (/api/openapi.json)."
+  - id: server.profile_unknown
+    exit_code: 2
+    scope: server
+    cause: Das für den Job angegebene Profil gibt es nicht.
+    hints:
+      - "Abhilfe: ein vorhandenes Profil wählen, z. B. low_vram_6gb (`drone-scan config`)."
+  - id: server.scan_not_found
+    exit_code: 10
+    scope: server
+    cause: Den angefragten Scan gibt es im Workspace nicht.
+    hints:
+      - "Abhilfe: Scan-ID prüfen (GET /api/scans) oder den Scan zuerst anlegen."
+  - id: server.job_not_found
+    exit_code: 10
+    scope: server
+    cause: Den angefragten Job gibt es nicht.
+    hints:
+      - "Abhilfe: Job-ID prüfen (GET /api/jobs)."
+  - id: server.result_not_found
+    exit_code: 10
+    scope: server
+    cause: Für diese Stufe liegt (noch) kein Ergebnis vor.
+    hints:
+      - "Abhilfe: zuerst einen Job mit dieser Stufe starten und abwarten, bis er fertig ist."
+  - id: server.job_conflict
+    exit_code: 1
+    scope: server
+    cause: Für diesen Scan wartet oder läuft bereits ein Job.
+    hints:
+      - "Abhilfe: den laufenden Job abwarten oder abbrechen (POST /api/jobs/{id}/cancel)."
+  - id: server.job_not_cancellable
+    exit_code: 1
+    scope: server
+    cause: Der Job ist bereits beendet und kann nicht mehr abgebrochen werden.
+    hints:
+      - "Abhilfe: nichts zu tun; zum Fortsetzen POST /api/jobs/{id}/resume verwenden."
+  - id: server.job_not_resumable
+    exit_code: 1
+    scope: server
+    cause: Nur fehlgeschlagene, abgebrochene oder unterbrochene Jobs lassen sich fortsetzen.
+    hints:
+      - "Abhilfe: den Job abwarten bzw. für einen erfolgreichen Scan einen neuen Job starten."
+  - id: server.upload_too_large
+    exit_code: 1
+    scope: server
+    cause: Das hochgeladene Video ist größer als server.max_upload_gb (Profil).
+    hints:
+      - >-
+        Abhilfe: das Video kürzen bzw. in mehrere Flüge teilen oder DRONESCAN_SERVER__MAX_UPLOAD_GB
+        erhöhen.
+  - id: server.upload_failed
+    exit_code: 1
+    scope: server
+    cause: Das Video konnte nicht gespeichert werden (Verbindung abgebrochen oder Speicher voll).
+    hints:
+      - "Abhilfe: freien Speicherplatz prüfen und den Upload wiederholen."
+  - id: server.job_interrupted
+    exit_code: 1
+    scope: server
+    cause: Der Server wurde beendet, während der Job lief.
+    hints:
+      - "Abhilfe: Job fortsetzen (POST /api/jobs/{id}/resume); fertige Stufen werden übersprungen."
+  - id: server.stage_crashed
+    exit_code: 1
+    scope: server
+    cause: Der Prozess einer Stufe endete, ohne ein Manifest zu schreiben (z. B. vom System beendet).
+    hints:
+      - >-
+        Abhilfe: Job fortsetzen (POST /api/jobs/{id}/resume); tritt es wieder auf, das Job-Log
+        `<scan>/jobs/<job-id>.log` an das Entwicklungsteam geben.
+  - id: server.not_loopback
+    exit_code: 2
+    scope: server
+    cause: "`serve` darf nur an localhost gebunden werden (Zugriff aus dem LAN folgt mit HTTPS, KAN-54)."
+    hints:
+      - "Abhilfe: --host weglassen oder 127.0.0.1, ::1 bzw. localhost angeben."
+  - id: server.extra_missing
+    exit_code: 1
+    scope: server
+    cause: Für `drone-scan serve` fehlen FastAPI bzw. uvicorn.
+    hints:
+      - >-
+        Abhilfe: das optionale Paket installieren mit `uv sync --extra server` (bzw.
+        `pip install 'drone-scan[server]'`).
