@@ -28,6 +28,7 @@ from dronescan.common.config import ProfileError, describe_validation_error, loa
 from dronescan.common.logging import configure_logging
 from dronescan.common.stage import ExitCode, register_stage
 from dronescan.ingest.stage import IngestStage
+from dronescan.recon.stage import ReconStage
 from dronescan.sfm.stage import SfmStage
 
 app = typer.Typer(
@@ -238,3 +239,4 @@ def camera_calibrate(
 
 register_stage(app, IngestStage)
 register_stage(app, SfmStage)
+register_stage(app, ReconStage)

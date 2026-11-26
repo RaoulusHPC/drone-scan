@@ -18,7 +18,7 @@ import os
 import re
 from importlib import resources
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, model_validator
@@ -240,8 +240,46 @@ class CalibrationSettings(_Section):
 
 
 class SplatSettings(_Section):
-    max_iterations: PositiveInt
-    max_gaussians: PositiveInt
+    """Stage ``recon`` (Gaussian splatting with gsplat, KAN-41); values from spike-01 §7."""
+
+    strategy: Literal["mcmc"] = Field(
+        description="Densification strategy: MCMC (better quality and half the memory of the "
+        "default strategy in spike-01 §6.1)."
+    )
+    max_iterations: PositiveInt = Field(description="Training iterations.")
+    max_gaussians: PositiveInt = Field(
+        description="Cap on the number of Gaussians (MCMC cap_max); determines the VRAM."
+    )
+    max_image_edge_px: PositiveInt = Field(
+        description="Longest edge of the training images (undistorted, downscaled)."
+    )
+    sh_degree: int = Field(ge=0, le=3, description="Spherical-harmonics degree of the colours.")
+    holdout_every: int = Field(
+        ge=2, description="Every n-th keyframe (name order) is held out for PSNR/SSIM."
+    )
+    overfit_warn_gap_db: float = Field(
+        gt=0,
+        description="Warn if the PSNR on training views exceeds the held-out PSNR by more "
+        "(spike-01: 3.2 dB on a complete model, 5.9 dB on a fragment).",
+    )
+    oom_retry_max_gaussians: PositiveInt = Field(
+        description="Gaussian cap of the one retry after running out of VRAM."
+    )
+    oom_retry_image_edge_px: PositiveInt = Field(
+        description="Longest image edge of the retry after running out of VRAM."
+    )
+    timeout_s: PositiveInt = Field(
+        description="Stop the training after this time (a hanging container holds the GPU lock)."
+    )
+
+    @model_validator(mode="after")
+    def _smaller_retry(self) -> Self:
+        if (
+            self.oom_retry_max_gaussians >= self.max_gaussians
+            or self.oom_retry_image_edge_px >= self.max_image_edge_px
+        ):
+            raise ValueError("oom_retry_* values must be smaller than the normal ones")
+        return self
 
 
 class SearchSettings(_Section):

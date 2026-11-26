@@ -68,7 +68,7 @@ docker-check: ## GPU visible in the worker container? (expects e.g. (6, 1) on th
 	docker compose run --rm worker python -W always -c \
 		"import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability())"
 
-smoke: ## Pipeline on data/samples/kurz.mp4 (poses; mini splat follows with KAN-41), GTX 1060
+smoke: ## Pipeline on data/samples/kurz.mp4 (poses + mini splat), GTX 1060
 	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) DRONESCAN_GPU_DEVICE=$(GPU_DEVICES) \
 		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run python -m dronescan.common.smoke
 
