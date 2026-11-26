@@ -1,6 +1,6 @@
 # Fehlercodes
 
-Exitcodes aller Pipeline-Stufen (`drone-scan <stufe> --scan <dir>`), siehe Architektur §5.2. Ursache und Abhilfe stehen zusätzlich in `<scan>/<stufe>/manifest.json` (`error`, `hints`). Der vollständige Katalog mit allen Meldungen folgt in KAN-56 (US-041).
+Exitcodes aller Pipeline-Stufen (`drone-scan <stufe> --scan <dir>`), siehe Architektur §5.2. Ursache und Abhilfe stehen zusätzlich in `<scan>/<stufe>/manifest.json` (`error`, `hints`). Jede Fehlerursache hat zusätzlich einen stabilen Fehlercode (`<bereich>.<name>`, z. B. `sfm.no_model`), siehe [Katalog](#katalog-der-fehlercodes). Er steht im Manifest (`error_code`) und wird bei Fehlern in der CLI ausgegeben (`Fehlercode: ...`).
 
 | Code | Status im Manifest | Bedeutung | Typische Abhilfe |
 |---|---|---|---|
@@ -22,3 +22,47 @@ Der Kalibrierbefehl ist keine Pipeline-Stufe (kein Manifest), nutzt aber dieselb
 | 2 | Aufruffehler (ungültiger `--name`, `--pattern`, `--model`, Zieldatei existiert) | Aufruf prüfen, `--force` zum Ersetzen |
 | 10 | Video fehlt oder ist nicht lesbar | Pfad prüfen, Video neu exportieren |
 | 20 | Muster in zu wenigen Bildern gefunden (`calibration.min_views`) oder Restfehler zu groß (`calibration.max_rms_error_px`) | Muster scharf, flach und aus vielen Winkeln bis in die Bildecken filmen; `--cols`/`--rows` zählen Felder |
+
+## Katalog der Fehlercodes
+
+Quelle ist `src/dronescan/common/error_catalog.yaml`; die Tabelle wird daraus erzeugt (`uv run python -m dronescan.common.error_catalog --write`) und von einem Test auf Abweichungen geprüft. Neue Fehler brauchen zuerst einen Eintrag im Katalog. Die Spalte „Abhilfe“ zeigt die festen Hinweise; Meldungen nennen zusätzlich Details des konkreten Falls (z. B. Flug-ID, Zahlen).
+
+<!-- BEGIN error-catalog (generated: python -m dronescan.common.error_catalog) -->
+| Fehlercode | Exitcode | Ursache | Abhilfe |
+|---|---|---|---|
+| `capture.calibration_board_invalid` | 1 | Ungültige Mustereinstellung (ChArUco ohne gültige --marker-mm, unbekanntes --dictionary). | Abhilfe: Markergröße messen und angeben bzw. ein Wörterbuch wie DICT_4X4_50 oder DICT_5X5_100 verwenden. |
+| `capture.calibration_ffmpeg_missing` | 1 | ffmpeg/ffprobe ist nicht installiert. | Abhilfe: ffmpeg installieren (z. B. `sudo apt install ffmpeg`). |
+| `capture.calibration_opencv_missing` | 1 | Für `camera calibrate` fehlt OpenCV. | Abhilfe: das optionale Paket installieren mit `uv sync --extra calibration` (bzw. `pip install 'drone-scan[calibration]'`). |
+| `capture.calibration_write_failed` | 1 | Das Kameraprofil konnte nicht geschrieben werden. | Abhilfe: Zielordner und Schreibrechte prüfen oder mit --output einen anderen Pfad angeben. |
+| `cli.config_invalid` | 1 | Die Konfiguration (Profil plus Umgebungsvariablen DRONESCAN_*) enthält einen ungültigen Wert. | Abhilfe: den in der Meldung genannten Wert bzw. die Umgebungsvariable korrigieren. |
+| `common.gpu_busy` | 1 | Eine andere GPU-Stufe hält die GPU-Sperre länger als gpu.lock_timeout_s (Profil, 1800 s). Ein vorhandenes Manifest wird dabei nicht verändert. | Abhilfe: warten, bis die andere Stufe fertig ist (`docker ps`, `nvidia-smi`), und neu starten oder DRONESCAN_GPU__LOCK_TIMEOUT_S erhöhen. |
+| `common.gpu_lock_unusable` | 1 | Die GPU-Sperrdatei ist nicht nutzbar (Verzeichnis nicht beschreibbar). | Abhilfe: Verzeichnis prüfen oder DRONESCAN_GPU_LOCK_DIR setzen; die Meldung nennt Details. |
+| `common.gpu_unavailable` | 1 | Kein nutzbares PyTorch/CUDA (fehlende GPU-Abhängigkeiten, Treiber oder GPU). | Abhilfe: NVIDIA-Treiber prüfen (`nvidia-smi`); die Meldung nennt die konkrete Abhilfe. |
+| `common.interrupted` | 1 | Abgebrochen (Strg+C bzw. Prozess beendet). | Abhilfe: Stufe erneut starten; bereits erzeugte Dateien werden neu berechnet. |
+| `common.outside_scan` | 1 | Eine Eingabe liegt außerhalb des Scan-Verzeichnisses. | Abhilfe: Dateien in das Scan-Verzeichnis importieren (Stufe 'import'). |
+| `common.unexpected` | 1 | Unerwarteter Fehler in einer Stufe (nicht vorhergesehener Programmfehler). | Unerwarteter Fehler. Abhilfe: mit --force erneut ausführen; tritt er wieder auf, Log-Ausgabe und manifest.json an das Entwicklungsteam geben. |
+| `common.write_failed` | 1 | Ergebnisse oder Einzelbilder konnten nicht geschrieben werden. | Abhilfe: freien Speicherplatz und Schreibrechte im Workspace prüfen. |
+| `ingest.ffmpeg_missing` | 1 | ffmpeg ist nicht installiert. | Abhilfe: ffmpeg installieren (z. B. `sudo apt install ffmpeg`). |
+| `recon.image_unavailable` | 1 | Docker oder das Worker- bzw. COLMAP-Image fehlt, oder die GPU ist im Container nicht erreichbar. | Abhilfe: Docker starten und die Images bauen mit `docker compose build worker colmap`.<br>GPU im Container prüfen mit `make docker-check` (NVIDIA Container Toolkit, siehe README). |
+| `recon.prepare_failed` | 1 | Entzerren, Bilder lesen oder Szene laden ist fehlgeschlagen, oder das Training schrieb keine Messwerte bzw. endete mit einem Fehler. | Abhilfe: Logdateien in recon/work/logs/ prüfen und mit --force erneut ausführen. |
+| `recon.train_timeout` | 1 | Das Training wurde nach splat.timeout_s abgebrochen oder der Worker antwortet nicht. | Abhilfe: andere GPU-Programme schließen; auf langsamen Rechnern DRONESCAN_SPLAT__TIMEOUT_S erhöhen oder DRONESCAN_SPLAT__MAX_ITERATIONS senken. |
+| `sfm.colmap_failed` | 1 | COLMAP ist fehlgeschlagen oder antwortet nicht. | Abhilfe: Logdateien in sfm/colmap/logs/ prüfen und mit --force erneut ausführen. |
+| `sfm.image_unavailable` | 1 | Docker oder das COLMAP-Image fehlt, oder die GPU ist im Container nicht erreichbar. | Abhilfe: Docker starten und das Image bauen mit `docker compose build colmap`.<br>GPU im Container prüfen mit `make docker-check` (NVIDIA Container Toolkit, siehe README). |
+| `capture.camera_profile_invalid` | 2 | Das Kameraprofil bei `flight add --camera` ist unbekannt, nicht lesbar oder ungültig. | Abhilfe: Name oder Pfad prüfen (`drone-scan camera list`) oder neu kalibrieren. |
+| `cli.usage` | 2 | Aufruffehler der CLI (unbekanntes Profil, fehlende oder ungültige Option, Zieldatei existiert). | Abhilfe: Aufruf mit `--help` prüfen. |
+| `capture.calibration_video_unreadable` | 10 | Das Kalibriervideo fehlt oder ist nicht lesbar. | Abhilfe: Video prüfen oder neu exportieren (MP4/MOV mit H.264/H.265). |
+| `capture.scan_invalid` | 10 | `flight add`: Scan nicht angelegt, Video fehlt, ist defekt, hat keine Videospur oder ein nicht unterstütztes Format. | Abhilfe: Scan anlegen (`drone-scan scan create`), Pfad prüfen oder das Video neu exportieren. |
+| `common.input_missing` | 10 | Eine Eingabe der Stufe fehlt oder der Scan ist nicht lesbar (vorherige Stufe nicht gelaufen). | Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen und den Pfad mit --scan prüfen. |
+| `common.no_flight` | 10 | Der Scan enthält noch kein Video. | Abhilfe: Video importieren mit `drone-scan flight add <scan> <video>`. |
+| `common.scan_dir_missing` | 10 | Das mit --scan angegebene Scan-Verzeichnis existiert nicht. | Abhilfe: Pfad mit --scan prüfen bzw. den Scan zuerst anlegen. |
+| `ingest.video_broken` | 10 | Das Video kann nicht (vollständig) dekodiert werden. | Abhilfe: Video am Rechner abspielen und neu importieren, ggf. vorher neu exportieren (MP4/MOV mit H.264/H.265). |
+| `recon.sfm_missing` | 10 | Die Kameraposen fehlen, weil 'sfm' nicht erfolgreich gelaufen ist. | Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen und den Pfad mit --scan prüfen. |
+| `sfm.frames_missing` | 10 | Die Einzelbilder fehlen, weil 'ingest' nicht erfolgreich gelaufen ist oder Dateien eines Flugs fehlen. | Abhilfe: vorherige Stufe bzw. den Import für diesen Scan ausführen und den Pfad mit --scan prüfen. |
+| `capture.calibration_quality` | 20 | Das Muster wurde in zu wenigen Bildern gefunden (calibration.min_views), die Kalibrierung ist nicht konvergiert oder der Restfehler ist zu groß (calibration.max_rms_error_px). | Muster vollständig, scharf und gut beleuchtet filmen; die Kamera langsam bewegen.<br>Aus verschiedenen Winkeln und Abständen filmen, das Muster auch in die Bildecken und an die Bildränder bringen.<br>Muster flach auf eine feste Unterlage kleben (nicht gewellt).<br>Mustergröße prüfen: --cols und --rows zählen die Felder (Quadrate), nicht die inneren Ecken; bei ChArUco auch --dictionary prüfen. |
+| `ingest.quality_red` | 20 | Die Gesamtampel aus Schärfe, Belichtung, Bewegung und Abdeckung steht auf Rot (Einzelbewertung je Flug in ingest/<flight_id>/quality.json). | Die Hinweise der Meldung zu den roten Kriterien befolgen und neu aufnehmen. |
+| `ingest.too_few_frames` | 20 | Zu wenige verschiedene, scharfe Einzelbilder (Mindestzahl im Profil, ingest.min_keyframes). | Kamera während der Aufnahme langsam und stetig durch den Raum bewegen (≤ 0,5 m/s).<br>Länger aufnehmen: mindestens 30 Sekunden pro Raum.<br>Licht einschalten, damit die Bilder nicht verwackeln. |
+| `recon.few_images` | 20 | Weniger als zwei verortete Einzelbilder, zu wenig für das Training. | Mehr Einzelbilder aufnehmen: langsamer und länger filmen.<br>Die Stufe 'sfm' muss mindestens zwei Einzelbilder verorten. |
+| `sfm.no_model` | 20 | Aus den Einzelbildern entstand kein 3D-Modell, oder weniger als 80 % der Einzelbilder liegen im größten Teilmodell (Messwerte unter metrics). | Licht einschalten und möglichst bei Tageslicht aufnehmen.<br>Langsamer bewegen (≤ 0,5 m/s) und 1 bis 1,5 m Abstand zu den Wänden halten.<br>Türdurchgänge doppelt aufnehmen (hin und zurück).<br>Bei weißen Wänden, Glas oder Spiegeln 2 bis 4 AprilTags aufhängen. |
+| `common.gpu_oom` | 30 | Der Grafikspeicher (VRAM) hat nicht gereicht, auch nicht nach der automatischen Wiederholung mit kleineren Werten. | Der Grafikspeicher hat nicht gereicht. Abhilfe: Profil 'low_vram_6gb' verwenden, andere GPU-Programme schließen oder ein kürzeres Video bzw. weniger Räume pro Scan verarbeiten. |
+| `common.ram_oom` | 30 | Der Arbeitsspeicher (RAM) hat nicht gereicht, oder der Kernel hat den Container beendet (Docker-Code 137). | Der Arbeitsspeicher hat nicht gereicht. Abhilfe: andere Programme schließen oder ein kürzeres Video bzw. weniger Räume pro Scan verarbeiten. |
+<!-- END error-catalog -->

@@ -22,10 +22,13 @@ import structlog
 from pydantic import BaseModel
 
 from dronescan.capture.scan import SCAN_FILE, FlightMeta, ScanError, flight_video, load_scan
+from dronescan.common import error_catalog as catalog
 from dronescan.common.config import IngestSettings, Settings
 from dronescan.common.stage import (
     INPUT_MISSING_HINT,
     MANIFEST_NAME,
+    NO_FLIGHT_HINT,
+    WRITE_HINT,
     InputMissingError,
     QualityError,
     Stage,
@@ -57,13 +60,8 @@ FRAMES_DIR = "frames"
 FRAMES_TABLE = "frames.parquet"
 _FLIGHT_DIR = re.compile(r"^f\d{2,}$")
 
-NO_FLIGHT_HINT = "Abhilfe: Video importieren mit `drone-scan flight add <scan> <video>`."
-FFMPEG_HINT = "Abhilfe: ffmpeg installieren (z. B. `sudo apt install ffmpeg`)."
-BROKEN_VIDEO_HINT = (
-    "Abhilfe: Video am Rechner abspielen und neu importieren, ggf. vorher neu exportieren "
-    "(MP4/MOV mit H.264/H.265)."
-)
-WRITE_HINT = "Abhilfe: freien Speicherplatz und Schreibrechte im Workspace prüfen."
+FFMPEG_HINT = catalog.hint("ingest.ffmpeg_missing")
+BROKEN_VIDEO_HINT = catalog.hint("ingest.video_broken")
 TOO_FEW_HINTS = [HINT_MOVE_SLOWLY, HINT_RECORD_LONGER, HINT_LIGHTS_ON]
 _CRITERION_LABELS = (
     ("Schärfe", "sharpness"),
@@ -143,11 +141,13 @@ class IngestStage(Stage):
                 f"Nur {total} brauchbare Einzelbilder in der Aufnahme "
                 f"(mindestens {ctx.settings.ingest.min_keyframes} nötig).",
                 TOO_FEW_HINTS,
+                code="ingest.too_few_frames",
             )
         if scan_quality.overall is TrafficLight.RED:
             raise QualityError(
                 "Die Aufnahmequalität reicht nicht für eine brauchbare Rekonstruktion.",
                 scan_quality.hints,
+                code="ingest.quality_red",
             )
         for hint in scan_quality.hints:
             ctx.hint(hint)
@@ -175,7 +175,9 @@ class IngestStage(Stage):
                 out_dir=frames_dir,
             )
         except FfmpegError as exc:
-            raise StageError(f"Flug {flight.id}: {exc}", [WRITE_HINT]) from exc
+            raise StageError(
+                f"Flug {flight.id}: {exc}", [WRITE_HINT], code="common.write_failed"
+            ) from exc
         files = {
             frame.index: f"{FRAMES_DIR}/{image.name}"
             for frame, image in zip(keyframes, images, strict=True)
@@ -192,7 +194,9 @@ class IngestStage(Stage):
             )
         except OSError as exc:
             raise StageError(
-                f"Flug {flight.id}: Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]
+                f"Flug {flight.id}: Ergebnisse konnten nicht geschrieben werden.",
+                [WRITE_HINT],
+                code="common.write_failed",
             ) from exc
         if summary.decoded_s < cfg.min_decoded_ratio * flight.duration_s:
             ctx.warn(
@@ -237,9 +241,13 @@ def _flights(scan_dir: Path) -> list[FlightMeta]:
     try:
         flights = load_scan(scan_dir).flights
     except ScanError as exc:
-        raise InputMissingError(str(exc), [INPUT_MISSING_HINT]) from exc
+        raise InputMissingError(
+            str(exc), [INPUT_MISSING_HINT], code="common.input_missing"
+        ) from exc
     if not flights:
-        raise InputMissingError("Der Scan enthält noch kein Video.", [NO_FLIGHT_HINT])
+        raise InputMissingError(
+            "Der Scan enthält noch kein Video.", [NO_FLIGHT_HINT], code="common.no_flight"
+        )
     return flights
 
 
@@ -280,9 +288,11 @@ def _analyse(video: Path, flight: FlightMeta, cfg: IngestSettings) -> _Analysis:
     try:
         times = decode_gray(video, size, cfg.analysis_fps, measure)
     except FfmpegMissingError as exc:
-        raise StageError(str(exc), [FFMPEG_HINT]) from exc
+        raise StageError(str(exc), [FFMPEG_HINT], code="ingest.ffmpeg_missing") from exc
     except FfmpegError as exc:
-        raise InputMissingError(f"Flug {flight.id}: {exc}", [BROKEN_VIDEO_HINT]) from exc
+        raise InputMissingError(
+            f"Flug {flight.id}: {exc}", [BROKEN_VIDEO_HINT], code="ingest.video_broken"
+        ) from exc
     samples = [
         Sample(timestamp_s=time, sharpness=score, thumbnail=thumb)
         for time, (score, thumb, _) in zip(times, measured, strict=True)
