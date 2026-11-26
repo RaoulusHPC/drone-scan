@@ -24,6 +24,7 @@ from dronescan.capture.camera import (
     write_camera,
 )
 from dronescan.capture.scan import ScanError, add_flight, create_scan, resolve_scan_dir
+from dronescan.common import error_catalog as catalog
 from dronescan.common.camera_models import CAMERA_MODELS
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 from dronescan.common.logging import configure_logging
@@ -31,6 +32,7 @@ from dronescan.common.models_lock import ModelsLock, load_models_lock, model_sta
 from dronescan.common.stage import ExitCode, register_stage
 from dronescan.ingest.stage import IngestStage
 from dronescan.recon.stage import ReconStage
+from dronescan.server import is_loopback
 from dronescan.sfm.stage import SfmStage
 
 app = typer.Typer(
@@ -349,6 +351,65 @@ def models_pull(
             _echo_code(exc.code)
             raise typer.Exit(code=int(ExitCode.ERROR)) from exc
         typer.echo(f"{entry.name}: {result}, SHA-256 geprüft.")
+
+
+@app.command("serve")
+def serve(
+    workspace: WorkspaceOption = Path("workspace"),
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Adresse (Standard: server.host, nur localhost erlaubt)."),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", min=1, max=65535, help="Port (Standard: server.port)."),
+    ] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", help="Profil des Servers und Standardprofil der Jobs."),
+    ] = None,
+) -> None:
+    """Lokalen API-Server mit Job-Queue starten (REST + Server-Sent Events, nur localhost)."""
+    try:
+        settings = load_settings(profile)
+    except ProfileError as exc:
+        _echo_code("cli.usage")
+        raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
+    except ValidationError as exc:
+        typer.echo(describe_validation_error(exc, profile), err=True)
+        _echo_code("cli.config_invalid")
+        raise typer.Exit(code=int(ExitCode.ERROR)) from exc
+    bind = host or settings.server.host
+    if not is_loopback(bind):
+        _echo_code("server.not_loopback")
+        raise typer.BadParameter(
+            f"'{bind}' ist keine localhost-Adresse. {catalog.hint('server.not_loopback')}",
+            param_hint="--host / DRONESCAN_SERVER__HOST",
+        )
+    try:
+        import uvicorn
+
+        from dronescan.server.api import create_app
+    except ImportError as exc:
+        typer.echo(
+            f"{catalog.cause('server.extra_missing')} {catalog.hint('server.extra_missing')}",
+            err=True,
+        )
+        _echo_code("server.extra_missing")
+        raise typer.Exit(code=int(ExitCode.ERROR)) from exc
+    listen = port or settings.server.port
+    typer.echo(f"drone-scan-Server: http://{bind}:{listen}/api (Strg+C beendet)")
+    # No access log: request paths contain scan ids, which may be names of people (CLAUDE.md).
+    # Open SSE streams follow running jobs: after the grace time uvicorn closes them, so Ctrl+C
+    # reaches the lifespan shutdown, which interrupts the running job (resumable).
+    uvicorn.run(
+        create_app(workspace, settings),
+        host=bind,
+        port=listen,
+        access_log=False,
+        log_level="warning",
+        timeout_graceful_shutdown=int(settings.server.shutdown_grace_s),
+    )
 
 
 register_stage(app, IngestStage)

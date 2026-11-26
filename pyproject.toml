@@ -18,6 +18,8 @@ dependencies = [
 [project.optional-dependencies]
 # `drone-scan camera calibrate` (KAN-29); not installed in the worker image.
 calibration = ["opencv-python-headless>=4.10"]
+# `drone-scan serve` (KAN-52): REST API + job queue; not installed in the worker image.
+server = ["fastapi>=0.165", "uvicorn>=0.32"] # 0.165: fastapi.sse, FastAPI(telemetry=)
 
 [project.scripts]
 drone-scan = "dronescan.cli:app"
@@ -26,10 +28,13 @@ drone-scan = "dronescan.cli:app"
 dev = [
     "mypy>=1.13",
     "opencv-python-headless>=4.10", # same as the `calibration` extra, for the tests
+    "fastapi>=0.165", # same as the `server` extra, for the tests
+    "httpx>=0.27", # fastapi.testclient
     "pre-commit>=4.0",
     "pytest>=8.3",
     "ruff>=0.8",
     "types-pyyaml>=6.0.12.20261113",
+    "uvicorn>=0.32",
 ]
 
 [build-system]
@@ -69,4 +74,8 @@ markers = [
     "torch: needs PyTorch/gsplat; with `gpu` it runs in the worker-test container (make test-gpu)",
     "bench: slow benchmarks on reference rooms, not in CI",
     "sitl: needs ArduPilot SITL flight simulation",
+]
+filterwarnings = [
+    # starlette now prefers the httpx2 fork; httpx (BSD-3) still works for the TestClient
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
 ]

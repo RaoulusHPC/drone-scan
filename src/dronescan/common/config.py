@@ -286,6 +286,35 @@ class SearchSettings(_Section):
     detector_batch_size: PositiveInt
 
 
+class ServerSettings(_Section):
+    """`drone-scan serve` (KAN-52): REST API and job queue, local only."""
+
+    host: str = Field(
+        min_length=1,
+        description="Listen address; only loopback (127.0.0.1, ::1, localhost) until KAN-54.",
+    )
+    port: int = Field(ge=1, le=65535)
+    events_poll_s: float = Field(gt=0, description="Seconds between checks for new SSE events.")
+    queue_poll_s: float = Field(gt=0, description="Seconds the idle queue waits for new jobs.")
+    cancel_grace_s: float = Field(
+        ge=0,
+        description="Seconds a cancelled stage gets to write its manifest after SIGINT before "
+        "it is killed.",
+    )
+    shutdown_grace_s: float = Field(
+        ge=0,
+        description="Seconds `serve` waits for open connections (SSE) on Ctrl+C before closing "
+        "them and interrupting the running job.",
+    )
+    max_upload_gb: float = Field(gt=0, description="Largest accepted flight video in GiB.")
+    oom_retry_profile: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9_]+$",
+        description="Smaller profile the queue retries a stage with once after exit 30 "
+        "(None: no retry).",
+    )
+
+
 class _EnvWithoutProfile(EnvSettingsSource):
     """Env source that ignores ``DRONESCAN_PROFILE``.
 
@@ -326,6 +355,7 @@ class Settings(BaseSettings):
     calibration: CalibrationSettings
     splat: SplatSettings
     search: SearchSettings
+    server: ServerSettings
 
     @classmethod
     def settings_customise_sources(

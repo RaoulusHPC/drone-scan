@@ -88,6 +88,14 @@ splat:
   timeout_s: 600
 search:
   detector_batch_size: 1
+server:
+  host: 127.0.0.1
+  port: 8765
+  events_poll_s: 0.5
+  queue_poll_s: 1
+  cancel_grace_s: 5
+  shutdown_grace_s: 1
+  max_upload_gb: 1
 """
 
 

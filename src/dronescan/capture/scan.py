@@ -139,10 +139,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def add_flight(scan_dir: Path, video: Path, camera: CameraProfile | None = None) -> FlightMeta:
+def add_flight(
+    scan_dir: Path, video: Path, camera: CameraProfile | None = None, move: bool = False
+) -> FlightMeta:
     """Validate ``video``, copy it into the scan and register it in ``scan.yaml``.
 
     ``camera`` is stored as a copy, so the scan stays reproducible if the profile changes.
+    ``move`` moves instead of copying (server uploads: a temporary file on the same disk).
     """
     load_scan(scan_dir)  # fail early if scan.yaml is unreadable
     if not video.is_file():
@@ -168,7 +171,10 @@ def add_flight(scan_dir: Path, video: Path, camera: CameraProfile | None = None)
                 except FileExistsError:
                     number += 1
             target = flight_dir / f"video{video.suffix.lower() or '.mp4'}"
-            shutil.copyfile(video, target)
+            if move:
+                shutil.move(video, target)
+            else:
+                shutil.copyfile(video, target)
             flight = FlightMeta(
                 **probed.model_dump(),
                 id=flight_id,
