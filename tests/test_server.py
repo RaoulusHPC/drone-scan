@@ -16,23 +16,25 @@ import sys
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from dronescan.cli import app as cli_app
-from dronescan.cli import is_loopback
 from dronescan.common import error_catalog as catalog
 from dronescan.common.config import Settings, load_settings
+from dronescan.server import is_loopback
 from dronescan.server.api import create_app
-from dronescan.server.queue import stage_command
+from dronescan.server.queue import JobQueue, stage_command
 from dronescan.server.store import FINAL, Job, JobStore
 from tests.test_ingest import needs_ffmpeg, panning, require_ffmpeg, write_video  # noqa: F401
 
 FAKE_STAGE = Path(__file__).with_name("fake_stage.py")
 TIMEOUT_S = 20.0
+BASE_URL = "http://127.0.0.1:8765"  # the server only answers requests to a loopback host
 runner = CliRunner()
 
 
@@ -57,7 +59,7 @@ def make_client(workspace: Path) -> Iterator[Callable[..., TestClient]]:
 
     def make(settings: Settings | None = None, **kwargs: Any) -> TestClient:
         app = create_app(workspace, settings or server_settings(), command=fake_command, **kwargs)
-        client = TestClient(app)
+        client = TestClient(app, base_url=BASE_URL)
         client.__enter__()  # runs the lifespan: starts the queue
         clients.append(client)
         return client
@@ -162,6 +164,21 @@ def test_openapi_is_3_1_and_lists_all_endpoints(client: TestClient) -> None:
     assert client.get("/api/docs").status_code == 404
 
 
+def test_fastapi_telemetry_is_off(workspace: Path) -> None:
+    """Given the app (FastAPI ships an OpenTelemetry hook)
+    When it is created, even with FASTAPI_OTEL_AUTO_CONFIGURE=true in the environment
+    Then auto configuration and all telemetry signals are off and no OTel SDK is installed.
+    """
+    import importlib.util
+
+    app = create_app(workspace, server_settings(), command=fake_command, run_queue=False)
+
+    config = app._telemetry  # FastAPI keeps the effective config here
+    assert config["auto_configure"] is False
+    assert not any(config[k] for k in ("tracing", "metrics", "logs", "operation_spans"))
+    assert importlib.util.find_spec("opentelemetry.sdk") is None
+
+
 def test_scans_can_be_created_listed_and_read(client: TestClient) -> None:
     """Given an empty workspace
     When a scan is created via POST /api/scans
@@ -247,6 +264,44 @@ def test_flight_upload_rejects_bad_names_and_too_large_files(
     assert list((workspace / scan_id / ".uploads").iterdir()) == []
 
 
+def test_flight_upload_accepts_only_shipped_camera_names(
+    client: TestClient, workspace: Path, tmp_path: Path
+) -> None:
+    """Given a YAML file outside the workspace
+    When an upload names it (or an unknown profile) as camera
+    Then the answer is 422 capture.camera_profile_invalid and nothing is read or stored.
+    """
+    scan_id = new_scan(client, workspace)
+    outside = tmp_path / "anything.yaml"
+    outside.write_text("name: x\n")
+    url = f"/api/scans/{scan_id}/flights"
+
+    for camera in (str(outside), "../anything.yaml", "unbekannt"):
+        response = client.post(url, params={"filename": "a.mp4", "camera": camera}, content=b"x")
+        assert response.status_code == 422, camera
+        assert response.json()["code"] == "capture.camera_profile_invalid"
+    assert "anything" not in response.text
+    assert not (workspace / scan_id / "flights").exists()
+
+
+def test_flight_upload_during_a_job_is_a_conflict(client: TestClient, workspace: Path) -> None:
+    """Given a scan with a running job
+    When a flight is uploaded
+    Then the answer is 409 server.job_conflict (ingest must not see a changing flight list).
+    """
+    scan_id = new_scan(client, workspace, {"ingest": {"sleep": 60}})
+    job_id = submit(client, scan_id)["id"]
+
+    response = client.post(
+        f"/api/scans/{scan_id}/flights", params={"filename": "a.mp4"}, content=b"x"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "server.job_conflict"
+    client.post(f"/api/jobs/{job_id}/cancel")
+    wait_for(client, job_id)
+
+
 def test_results_list_manifests_and_serve_only_listed_files(
     client: TestClient, workspace: Path
 ) -> None:
@@ -287,6 +342,56 @@ def test_missing_result_is_404(client: TestClient, workspace: Path) -> None:
 
     assert response.status_code == 404
     assert response.json()["code"] == "server.result_not_found"
+
+
+@pytest.mark.parametrize(
+    ("method", "url", "headers", "allowed"),
+    [
+        ("GET", "http://127.0.0.1:8765/api/health", {}, True),
+        ("GET", "http://localhost/api/health", {}, True),
+        ("GET", "http://[::1]:8765/api/health", {}, True),
+        ("GET", "http://evil.example:8765/api/scans", {}, False),  # DNS rebinding
+        ("GET", "http://127.0.0.1:8765/api/scans", {"origin": "https://evil.example"}, True),
+        ("POST", "http://127.0.0.1:8765/api/scans", {"origin": "https://evil.example"}, False),
+        ("POST", "http://127.0.0.1:8765/api/scans", {"origin": "null"}, False),
+        ("POST", "http://127.0.0.1:8765/api/scans", {"origin": "http://localhost:5173"}, True),
+    ],
+)
+def test_only_local_hosts_and_origins_are_served(
+    client: TestClient, method: str, url: str, headers: dict[str, str], allowed: bool
+) -> None:
+    """Given the server on localhost
+    When a request names a foreign Host (DNS rebinding) or a write comes from a foreign Origin
+    Then it is refused with 403 server.host_not_allowed; local requests pass.
+    """
+    response = client.request(method, url, headers=headers, json={"name": "Raum"})
+
+    if allowed:
+        assert response.status_code in (200, 201), response.text
+    else:
+        assert response.status_code == 403
+        assert response.json()["code"] == "server.host_not_allowed"
+
+
+def test_unexpected_errors_use_the_error_format(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given an internal error while answering
+    When the request is made
+    Then the answer is 500 with common.unexpected (no plain-text traceback).
+    """
+
+    def broken(*args: object) -> None:
+        raise RuntimeError("/home/someone/secret")
+
+    monkeypatch.setattr(JobStore, "jobs", broken)
+    local = TestClient(client.app, base_url=BASE_URL, raise_server_exceptions=False)
+
+    response = local.get("/api/jobs")
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "common.unexpected"
+    assert "secret" not in response.text
 
 
 def test_serve_refuses_non_loopback_hosts() -> None:
@@ -531,6 +636,46 @@ def test_resume_of_a_succeeded_job_is_refused(client: TestClient, workspace: Pat
     assert response.json()["code"] == "server.job_not_resumable"
 
 
+def test_resume_is_refused_while_another_job_of_the_scan_waits(
+    client: TestClient, workspace: Path
+) -> None:
+    """Given a failed job and a new queued job of the same scan
+    When the failed job is resumed
+    Then the answer is 409 server.job_conflict.
+    """
+    scan_id = new_scan(
+        client, workspace, {"ingest": {"exit": 10, "error_code": "common.no_flight"}}
+    )
+    failed = wait_for(client, submit(client, scan_id)["id"])["id"]
+    (workspace / scan_id / "fake.json").write_text(json.dumps({"ingest": {"sleep": 60}}))
+    running = submit(client, scan_id)["id"]
+
+    response = client.post(f"/api/jobs/{failed}/resume")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "server.job_conflict"
+    client.post(f"/api/jobs/{running}/cancel")
+    wait_for(client, running)
+
+
+def test_late_cancel_does_not_hit_a_later_resume(client: TestClient, workspace: Path) -> None:
+    """Given a failed job with a cancel request left over (it arrived after the last check)
+    When the job is resumed
+    Then it runs normally: the old request is dropped instead of cancelling the new run.
+    """
+    scan_id = new_scan(
+        client, workspace, {"ingest": {"exit": 10, "error_code": "common.no_flight"}}
+    )
+    job_id = wait_for(client, submit(client, scan_id)["id"])["id"]
+    queue: JobQueue = cast(FastAPI, client.app).state.queue
+    queue._cancelled.add(job_id)
+    (workspace / scan_id / "fake.json").write_text("{}")
+
+    client.post(f"/api/jobs/{job_id}/resume")
+
+    assert wait_for(client, job_id)["status"] == "succeeded"
+
+
 def test_unknown_job_is_404(client: TestClient) -> None:
     """Given no such job
     When it is read, cancelled, resumed or streamed
@@ -679,7 +824,7 @@ def test_real_ingest_job_runs_offline(tmp_path: Path, workspace: Path) -> None:
     Then it succeeds and the ingest manifest is available as result.
     """
     app = create_app(workspace, server_settings(), command=stage_command)
-    with TestClient(app) as client:
+    with TestClient(app, base_url=BASE_URL) as client:
         scan_id = client.post("/api/scans", json={"name": "E2E"}).json()["id"]
         video = write_video(tmp_path / "clip.mp4", panning(48))
         upload = client.post(

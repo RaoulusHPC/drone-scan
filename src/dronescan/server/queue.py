@@ -114,6 +114,12 @@ class JobQueue:
                 self._interrupted(job)
 
     # --- API operations ----------------------------------------------------------------
+    def active_job(self, scan_id: str) -> Job | None:
+        """The queued or running job of ``scan_id``, if any."""
+        return next(
+            (j for j in self.store.jobs(scan_id) if j.status in ("queued", "running")), None
+        )
+
     def submit(self, scan_id: str, stages: list[str], profile: str | None, force: bool) -> Job:
         with self._lock:
             if any(j.status in ("queued", "running") for j in self.store.jobs(scan_id)):
@@ -125,6 +131,8 @@ class JobQueue:
         return job
 
     def cancel(self, job_id: str) -> Job:
+        """Cancel ``job_id``; a running job is returned still running and ends asynchronously
+        (final state via SSE or GET)."""
         with self._lock:
             job = self._get(job_id)
             if job.status == "queued":
@@ -149,6 +157,7 @@ class JobQueue:
                 for j in self.store.jobs(job.scan_id)
             ):
                 raise JobStateError("server.job_conflict")
+            self._cancelled.discard(job_id)
             job = job.model_copy(
                 update={
                     "status": "queued",
@@ -186,10 +195,12 @@ class JobQueue:
             try:
                 self._run(job)
             except Exception as exc:  # the worker must survive any single job
-                log.exception("job_crashed", job_id=job.id)
-                error = f"{type(exc).__name__}: {exc}"
+                # Only the type: messages and tracebacks may contain paths with names.
+                log.error("job_crashed", job_id=job.id, error_type=type(exc).__name__)
+                code = "common.unexpected"
                 with self._lock:
-                    self._finish(self._get(job.id), "failed", error=error, code="common.unexpected")
+                    current = self._get(job.id)
+                    self._finish(current, "failed", catalog.cause(code), code, catalog.hints(code))
 
     def _run(self, job: Job) -> None:
         scan_dir = self.workspace / job.scan_id
@@ -309,6 +320,7 @@ class JobQueue:
         hints: list[str] | None = None,
     ) -> Job:
         """Final state of ``job`` plus its event (caller holds no lock or ``self._lock``)."""
+        self._cancelled.discard(job.id)  # a late cancel must not hit a later resume
         job.status, job.finished = status, datetime.now(UTC)
         job.error, job.error_code, job.hints = error, code, list(hints or [])
         self.store.save(job, _job_event(job))

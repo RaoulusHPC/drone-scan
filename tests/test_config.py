@@ -94,6 +94,7 @@ server:
   events_poll_s: 0.5
   queue_poll_s: 1
   cancel_grace_s: 5
+  shutdown_grace_s: 1
   max_upload_gb: 1
 """
 

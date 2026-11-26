@@ -301,6 +301,11 @@ class ServerSettings(_Section):
         description="Seconds a cancelled stage gets to write its manifest after SIGINT before "
         "it is killed.",
     )
+    shutdown_grace_s: float = Field(
+        ge=0,
+        description="Seconds `serve` waits for open connections (SSE) on Ctrl+C before closing "
+        "them and interrupting the running job.",
+    )
     max_upload_gb: float = Field(gt=0, description="Largest accepted flight video in GiB.")
     oom_retry_profile: str | None = Field(
         default=None,

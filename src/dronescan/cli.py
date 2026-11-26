@@ -8,7 +8,6 @@ User-facing texts are German, code and identifiers English (CLAUDE.md).
 
 from __future__ import annotations
 
-import ipaddress
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -33,6 +32,7 @@ from dronescan.common.models_lock import ModelsLock, load_models_lock, model_sta
 from dronescan.common.stage import ExitCode, register_stage
 from dronescan.ingest.stage import IngestStage
 from dronescan.recon.stage import ReconStage
+from dronescan.server import is_loopback
 from dronescan.sfm.stage import SfmStage
 
 app = typer.Typer(
@@ -353,16 +353,6 @@ def models_pull(
         typer.echo(f"{entry.name}: {result}, SHA-256 geprüft.")
 
 
-def is_loopback(host: str) -> bool:
-    """True for addresses only reachable from this machine (127.0.0.0/8, ::1, localhost)."""
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host.strip("[]")).is_loopback
-    except ValueError:
-        return False
-
-
 @app.command("serve")
 def serve(
     workspace: WorkspaceOption = Path("workspace"),
@@ -410,12 +400,15 @@ def serve(
     listen = port or settings.server.port
     typer.echo(f"drone-scan-Server: http://{bind}:{listen}/api (Strg+C beendet)")
     # No access log: request paths contain scan ids, which may be names of people (CLAUDE.md).
+    # Open SSE streams follow running jobs: after the grace time uvicorn closes them, so Ctrl+C
+    # reaches the lifespan shutdown, which interrupts the running job (resumable).
     uvicorn.run(
         create_app(workspace, settings),
         host=bind,
         port=listen,
         access_log=False,
         log_level="warning",
+        timeout_graceful_shutdown=int(settings.server.shutdown_grace_s),
     )
 
 

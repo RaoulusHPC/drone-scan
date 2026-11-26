@@ -404,6 +404,14 @@ codes:
       - >-
         Abhilfe: Job fortsetzen (POST /api/jobs/{id}/resume); tritt es wieder auf, das Job-Log
         `<scan>/jobs/<job-id>.log` an das Entwicklungsteam geben.
+  - id: server.host_not_allowed
+    exit_code: 1
+    scope: server
+    cause: >-
+      Anfrage abgelehnt: Sie kam nicht über localhost oder von einer fremden Webseite
+      (Schutz vor DNS-Rebinding und Cross-Site-Anfragen).
+    hints:
+      - "Abhilfe: die Oberfläche über http://127.0.0.1:<port> bzw. http://localhost:<port> öffnen."
   - id: server.not_loopback
     exit_code: 2
     scope: server

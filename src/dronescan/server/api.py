@@ -5,6 +5,10 @@ OpenAPI 3.1 at ``/api/openapi.json``. The interactive docs pages are off: they l
 scripts from a CDN, and the server makes no network access (CLAUDE.md rule 3; FastAPI's
 OpenTelemetry hooks are disabled as well). Errors are JSON ``{code, cause, hints}`` with a
 code from ``error_catalog.yaml``. The app only serves what lies in the workspace.
+
+Binding to loopback is not enough against web pages in the local browser: requests whose
+``Host`` is not a loopback name (DNS rebinding) and writes with a foreign ``Origin`` (CSRF)
+are refused with 403 ``server.host_not_allowed``.
 """
 
 from __future__ import annotations
@@ -12,23 +16,24 @@ from __future__ import annotations
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 import anyio
 import structlog
 from fastapi import Depends, FastAPI, Header, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from dronescan import __version__
-from dronescan.capture.camera import CameraError, CameraProfile, load_camera
+from dronescan.capture.camera import CameraError, CameraProfile, available_cameras, load_camera
 from dronescan.capture.scan import (
     SCAN_FILE,
     FlightMeta,
@@ -41,6 +46,7 @@ from dronescan.capture.scan import (
 from dronescan.common import error_catalog as catalog
 from dronescan.common.config import Settings, available_profiles
 from dronescan.common.stage import MANIFEST_NAME, Manifest, load_manifest
+from dronescan.server import is_loopback
 from dronescan.server.queue import (
     PIPELINE,
     JobQueue,
@@ -62,7 +68,6 @@ RESULT_FILES: dict[str, tuple[str, ...]] = {
 
 _SCAN_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _FILENAME = re.compile(r"^[\w][\w .-]*$")
-_CHUNK = 1024 * 1024
 
 log = structlog.get_logger(__name__)
 
@@ -127,8 +132,33 @@ class JobCreate(BaseModel):
 
 
 _ERRORS: dict[int | str, dict[str, object]] = {
-    code: {"model": ErrorResponse} for code in (400, 404, 409, 413, 422)
+    code: {"model": ErrorResponse} for code in (403, 404, 409, 413, 422, 500)
 }
+
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _host_name(host_header: str) -> str:
+    """Host without port; IPv6 literals keep no brackets."""
+    if host_header.startswith("["):
+        return host_header[1 : host_header.find("]")]
+    return host_header.rsplit(":", 1)[0] if host_header.count(":") == 1 else host_header
+
+
+def _request_allowed(request: Request) -> bool:
+    """Loopback ``Host`` always; a write may only come from a loopback ``Origin`` (or none)."""
+    if not is_loopback(_host_name(request.headers.get("host", ""))):
+        return False
+    origin = request.headers.get("origin")
+    if origin is None or request.method in _SAFE_METHODS:
+        return True
+    return is_loopback(urlsplit(origin).hostname or "")
+
+
+def _error(status_code: int, code: str, cause: str | None = None) -> JSONResponse:
+    body = ErrorResponse(code=code, cause=cause or catalog.cause(code), hints=catalog.hints(code))
+    return JSONResponse(body.model_dump(), status_code=status_code)
 
 
 def existing_job(request: Request, job_id: str) -> Job:
@@ -181,10 +211,23 @@ def create_app(
     )
     app.state.queue, app.state.store = queue, store
 
+    @app.middleware("http")
+    async def local_only(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if not _request_allowed(request):
+            return _error(403, "server.host_not_allowed")
+        return await call_next(request)
+
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError) -> JSONResponse:
-        body = ErrorResponse(code=exc.code, cause=exc.cause, hints=catalog.hints(exc.code))
-        return JSONResponse(body.model_dump(), status_code=exc.status_code)
+        return _error(exc.status_code, exc.code, exc.cause)
+
+    @app.exception_handler(Exception)
+    async def unexpected(_: Request, exc: Exception) -> JSONResponse:
+        # Only the type: messages may contain paths with names (CLAUDE.md).
+        log.error("request_failed", error_type=type(exc).__name__)
+        return _error(500, "common.unexpected")
 
     @app.exception_handler(RequestValidationError)
     async def invalid(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -194,8 +237,7 @@ def create_app(
         )
         code = "server.invalid_request"
         cause = f"{catalog.cause(code)} {details}"
-        body = ErrorResponse(code=code, cause=cause, hints=catalog.hints(code))
-        return JSONResponse(body.model_dump(), status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
+        return _error(status.HTTP_422_UNPROCESSABLE_CONTENT, code, cause)
 
     def scan_dir(scan_id: str) -> Path:
         path = workspace / scan_id
@@ -209,12 +251,6 @@ def create_app(
             return load_scan(path)
         except ScanError as exc:
             raise ApiError(422, "capture.scan_invalid", str(exc)) from exc
-
-    def get_job(job_id: str) -> Job:
-        job = store.get(job_id)
-        if job is None:
-            raise ApiError(404, "server.job_not_found")
-        return job
 
     def manifest_of(scan_id: str, stage: str) -> Manifest:
         manifest = load_manifest(scan_dir(scan_id) / stage / MANIFEST_NAME)
@@ -274,10 +310,14 @@ def create_app(
         scan_id: str,
         request: Request,
         filename: Annotated[str, Query(description="Original file name, e.g. flug1.mp4.")],
-        camera: Annotated[str | None, Query(description="Camera profile name.")] = None,
+        camera: Annotated[
+            str | None, Query(description="Name of a shipped camera profile (GET via CLI).")
+        ] = None,
     ) -> FlightMeta:
         """Video of one battery flight as raw request body (streamed, not multipart)."""
         target_dir = scan_dir(scan_id)
+        if queue.active_job(scan_id) is not None:  # ingest must not see a changing flight list
+            raise ApiError(409, "server.job_conflict")
         name = Path(filename).name
         if not _FILENAME.fullmatch(name) or Path(name).suffix.lower() not in VIDEO_SUFFIXES:
             raise ApiError(
@@ -287,6 +327,14 @@ def create_app(
             )
         profile: CameraProfile | None = None
         if camera is not None:
+            # Names only: a path would let any caller make the server read files on disk.
+            if camera not in available_cameras():
+                known = ", ".join(available_cameras())
+                raise ApiError(
+                    422,
+                    "capture.camera_profile_invalid",
+                    f"Unbekanntes Kameraprofil. Bekannt: {known}.",
+                )
             try:
                 profile = load_camera(camera)
             except CameraError as exc:
@@ -310,7 +358,7 @@ def create_app(
             if size == 0:
                 raise ApiError(422, "server.invalid_request", "Der Upload enthält keine Daten.")
             try:
-                return await run_in_threadpool(add_flight, target_dir, video, profile)
+                return await run_in_threadpool(add_flight, target_dir, video, profile, True)
             except ScanError as exc:
                 raise ApiError(422, "capture.scan_invalid", str(exc)) from exc
         finally:
@@ -377,22 +425,22 @@ def create_app(
         return store.jobs(scan_id)
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}", tags=["jobs"])
-    def job_details(job_id: str) -> Job:
-        return get_job(job_id)
+    def job_details(job: Annotated[Job, Depends(existing_job)]) -> Job:
+        return job
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/cancel", tags=["jobs"])
-    def cancel_job(job_id: str) -> Job:
-        get_job(job_id)
+    def cancel_job(job: Annotated[Job, Depends(existing_job)]) -> Job:
+        """Cancel the job. A running job is returned still running: its stage gets SIGINT and
+        the final state (cancelled) follows via the event stream or GET /api/jobs/{job_id}."""
         try:
-            return queue.cancel(job_id)
+            return queue.cancel(job.id)
         except JobStateError as exc:
             raise ApiError(409, exc.code) from exc
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/resume", tags=["jobs"])
-    def resume_job(job_id: str) -> Job:
-        get_job(job_id)
+    def resume_job(job: Annotated[Job, Depends(existing_job)]) -> Job:
         try:
-            return queue.resume(job_id)
+            return queue.resume(job.id)
         except JobStateError as exc:
             raise ApiError(409, exc.code) from exc
 
@@ -413,12 +461,13 @@ def create_app(
         job_id = job.id
         seq = last_event_id or 0
         while True:
-            job = await run_in_threadpool(get_job, job_id)
+            # Status before events: status and final event are written in one transaction.
+            current = await run_in_threadpool(store.get, job_id)
             events = await run_in_threadpool(store.events_after, job_id, seq)
             for event in events:
                 seq = event.seq
                 yield ServerSentEvent(data=event, event=event.type, id=str(event.seq))
-            if job.status in FINAL and not events:
+            if (current is None or current.status in FINAL) and not events:
                 return
             await anyio.sleep(server.events_poll_s)
 

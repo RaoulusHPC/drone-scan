@@ -74,5 +74,6 @@ server: # `drone-scan serve` (KAN-52): REST API + job queue, local only
   events_poll_s: 0.5 # SSE progress latency
   queue_poll_s: 1
   cancel_grace_s: 30 # after SIGINT the stage writes its manifest, then SIGKILL
+  shutdown_grace_s: 5 # Ctrl+C: open SSE streams are closed after this
   max_upload_gb: 8
   oom_retry_profile: low_vram_6gb # exit 30: the queue retries the stage once with it
