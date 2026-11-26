@@ -54,7 +54,10 @@ SH_DEGREE_INTERVAL = 1000  # raise the SH degree by one every this many steps
 REFINE_STOP_FRACTION = 0.8  # MCMC relocation/growth stops after 80 % of the iterations
 POSITION_LR_FINAL_FACTOR = 0.01  # position learning rate decays to 1 % over the run
 TRAIN_VIEW_SAMPLES = 8  # training views evaluated for the overfitting check
-NEIGHBOUR_CHUNK = 2048  # points per chunk of the nearest-neighbour search (bounds VRAM)
+# Memory of one chunk of the nearest-neighbour search: a [chunk, P] distance matrix plus the
+# top-k buffers. Budgeted in bytes so the start does not grow with the SfM point count (vram-guard).
+NEIGHBOUR_BUDGET_BYTES = 256 * MIB
+_NEIGHBOUR_BYTES_PER_ENTRY = 4 * 3  # fp32 distances, cdist/topk temporaries
 LEARNING_RATES = {
     "means": 1.6e-4,  # times the scene scale
     "scales": 5e-3,
@@ -167,15 +170,31 @@ def load_data(scene_dir: Path, raw_dir: Path, max_edge: int, device: torch.devic
 # ---------- model ----------
 
 
+def neighbour_chunk(count: int) -> int:
+    """Points per chunk of the nearest-neighbour search within `NEIGHBOUR_BUDGET_BYTES`."""
+    return max(1, min(count, NEIGHBOUR_BUDGET_BYTES // (count * _NEIGHBOUR_BYTES_PER_ENTRY)))
+
+
+def limit_points(data: Data, max_points: int, seed: int) -> None:
+    """Thin the SfM cloud to ``max_points`` (MCMC only grows: more start points than the cap
+    would keep the model above it for the whole run)."""
+    if len(data.points) > max_points:
+        keep = torch.randperm(len(data.points), generator=torch.Generator().manual_seed(seed))
+        keep = keep[:max_points].sort().values
+        data.points, data.colors = data.points[keep], data.colors[keep]
+
+
 def init_splats(data: Data, sh_degree: int, device: torch.device) -> torch.nn.ParameterDict:
     points, colors = data.points.to(device), data.colors.to(device)
     count = len(points)
     if count > 1:
         neighbours = min(3, count - 1)
+        chunk = neighbour_chunk(count)
         nearest = []
-        for start in range(0, count, NEIGHBOUR_CHUNK):
-            distances = torch.cdist(points[start : start + NEIGHBOUR_CHUNK], points)
+        for start in range(0, count, chunk):
+            distances = torch.cdist(points[start : start + chunk], points)
             nearest.append(distances.topk(neighbours + 1, largest=False).values[:, 1:])
+            del distances
         dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(1e-6)
     else:
         dist_avg = torch.full((count,), data.scene_scale * 0.01, device=device)
@@ -265,6 +284,8 @@ def train(job: TrainJob, scene_dir: Path, raw_dir: Path, out: Path, result: Trai
         raise SceneError("Zu wenige Bilder für Training und Validierung.")
     result.images_train, result.images_holdout = len(train_ids), len(holdout)
     result.init_points = len(data.points)
+    limit_points(data, job.max_gaussians, job.seed)
+    result.init_points_used = len(data.points)
     result.image_edge_px = max(max(view.width, view.height) for view in data.views)
 
     params = init_splats(data, job.sh_degree, device)

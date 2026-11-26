@@ -55,7 +55,7 @@ calibration: # `drone-scan camera calibrate` (KAN-29), CPU only; provisional
   min_views: 10
   max_views: 40 # evenly spread; calibration time grows with the views
   max_rms_error_px: 1.0
-splat: # stage recon (KAN-41); not measured on an 8 GB card yet
+splat: # stage recon (KAN-41); unmeasured on an 8 GB card: estimate ~4.5-5 GiB total at 2.5 M (vram-guard)
   strategy: mcmc
   max_iterations: 30000
   max_gaussians: 2500000

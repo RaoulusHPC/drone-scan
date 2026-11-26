@@ -95,6 +95,10 @@ OVERFIT_WARNING = (
     "zurückgehaltenen Bildern ({held:.1f} dB): Bereiche zwischen den Aufnahmepositionen "
     "können unscharf oder verzerrt aussehen."
 )
+PEAK_FALLBACK_WARNING = (
+    "Der Grafikspeicher des Trainings konnte nicht mit nvidia-smi gemessen werden. "
+    "peak_vram_mb ist nur der PyTorch-Wert ohne CUDA-Kontext (zu niedrig)."
+)
 OVERFIT_HINT = (
     "Den Raum vollständiger aufnehmen: mehr Blickwinkel, Türdurchgänge doppelt, langsam gehen."
 )
@@ -248,7 +252,14 @@ class ReconStage(Stage):
         except WorkerError as exc:
             raise StageError(str(exc), [TIMEOUT_HINT]) from exc
         finally:
-            ctx.record_peak_vram(worker.peak_vram_mib)
+            # nvidia-smi per container PID includes the CUDA context; without it only the
+            # allocator peak recorded by _attempt remains (a lower bound, flagged).
+            if worker.peak_vram_mib is not None:
+                ctx.record_peak_vram(worker.peak_vram_mib)
+                ctx.metrics["peak_vram_source"] = "process"
+            else:
+                ctx.metrics["peak_vram_source"] = "allocator"
+                ctx.warn(PEAK_FALLBACK_WARNING)
 
     def _attempt(
         self, ctx: StageContext, worker: Worker, work: Path, job: TrainJob, attempt: int
@@ -263,6 +274,7 @@ class ReconStage(Stage):
             log_file=work / _LOGS / f"train-{attempt}.log",
             timeout_s=ctx.settings.splat.timeout_s,
         )
+        ctx.metrics.setdefault("peak_vram_mib_attempts", []).append(worker.last_peak_vram_mib)
         result: TrainResult | None = None
         try:
             text = (work / f"attempt-{attempt}" / RESULT_NAME).read_text(encoding="utf-8")
@@ -287,6 +299,8 @@ class ReconStage(Stage):
             peak_allocated_mib=result.peak_allocated_mib,
             peak_reserved_mib=result.peak_reserved_mib,
             device=result.device,
+            init_points=result.init_points,
+            init_points_used=result.init_points_used,
         )
         ctx.metrics.setdefault("oom_retry", False)
         held, train = result.psnr_db, result.train_psnr_db

@@ -121,6 +121,7 @@ class Worker:
         self._mounts = mounts
         self._gpu_device = gpu_device
         self.peak_vram_mib: float | None = None  # over all runs, also failed ones
+        self.last_peak_vram_mib: float | None = None  # of the last run
 
     def run(self, module: str, args: list[str], *, log_file: Path, timeout_s: float) -> int:
         """Run ``python -m module args``; returns its exit code (output goes to ``log_file``)."""
@@ -171,6 +172,7 @@ class Worker:
             finally:
                 if proc.stdin is not None:
                     proc.stdin.close()
+                self.last_peak_vram_mib = sampler.peak
                 if sampler.peak is not None:
                     self.peak_vram_mib = max(sampler.peak, self.peak_vram_mib or 0.0)
         seconds = round(time.monotonic() - started, 1)

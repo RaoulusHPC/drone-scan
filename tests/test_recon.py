@@ -305,6 +305,25 @@ def test_peak_vram_is_the_container_process_including_context(
     result = recon(scan)
 
     assert result.manifest.peak_vram_mb == 2345.0
+    assert result.manifest.metrics["peak_vram_source"] == "process"
+
+
+def test_peak_falls_back_to_allocator_with_a_warning(
+    scan: Path, docker: FakeDocker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given nvidia-smi does not see the trainer's process,
+    When the stage runs,
+    Then peak_vram_mb is the allocator peak, marked as source "allocator" with a warning, so
+    it is never reported as the total incl. CUDA context.
+    """
+    (docker.state / "nvidia-smi").write_text(f"#!{sys.executable}\nprint('1, 9000')\n")
+
+    result = recon(scan)
+
+    assert result.exit_code is ExitCode.OK
+    assert result.manifest.peak_vram_mb == 1000.0  # peak_reserved_mib of the trainer
+    assert result.manifest.metrics["peak_vram_source"] == "allocator"
+    assert any("nvidia-smi" in warning for warning in result.manifest.warnings)
 
 
 def test_decoded_and_undistorted_images_are_removed(scan: Path, docker: FakeDocker) -> None:
@@ -381,6 +400,7 @@ def test_oom_retries_once_with_smaller_values(scan: Path, docker: FakeDocker) ->
     assert (first.max_gaussians, first.max_image_edge_px, first.packed) == (1_500_000, 1200, False)
     assert (second.max_gaussians, second.max_image_edge_px, second.packed) == (750_000, 960, True)
     assert result.manifest.metrics["oom_retry"] is True
+    assert result.manifest.metrics["peak_vram_mib_attempts"] == [2345.0, 2345.0]
     assert result.manifest.warnings == [OOM_RETRY_WARNING.format(gaussians=750_000, edge=960)]
     assert (scan / "recon" / "splat" / "scene.ply").is_file()
 

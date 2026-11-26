@@ -120,3 +120,61 @@ def test_missing_scene_exits_10(tmp_path: Path) -> None:
 
     assert code == TrainExit.INPUT_MISSING
     assert not result.ok and result.error
+
+
+def test_start_memory_does_not_grow_with_the_point_cloud(tmp_path: Path) -> None:
+    """Given 400 000 SfM points (a large room) and a 1.0 GiB allocator limit,
+    When the Gaussians are initialised (nearest-neighbour search, vram-guard B1),
+    Then it fits: the search is chunked by a byte budget, not by a fixed point count.
+    """
+    import torch
+
+    from dronescan.common.config import load_settings
+    from dronescan.common.gpu import apply_vram_limit
+    from dronescan.recon import train as trainer
+
+    apply_vram_limit(load_settings().model_copy(update={"vram_limit_gb": 1.0}))
+    torch.cuda.reset_peak_memory_stats()
+    generator = torch.Generator().manual_seed(0)
+    data = trainer.Data(
+        views=[],
+        viewmats=torch.empty(0),
+        intrinsics=torch.empty(0),
+        images=[],
+        points=torch.rand(400_000, 3, generator=generator) * 10,
+        colors=torch.rand(400_000, 3, generator=generator),
+        scene_scale=10.0,
+    )
+
+    try:
+        params = trainer.init_splats(data, sh_degree=3, device=torch.device("cuda"))
+        peak_mib = torch.cuda.max_memory_allocated() / 1024**2
+        assert len(params["means"]) == 400_000
+        assert torch.isfinite(params["scales"]).all()
+        assert peak_mib < trainer.NEIGHBOUR_BUDGET_BYTES / 1024**2 + 400  # budget + parameters
+        del params
+    finally:
+        torch.cuda.empty_cache()
+        apply_vram_limit(load_settings())  # back to the limit of `make test-gpu`
+
+
+def test_start_points_are_thinned_to_the_cap() -> None:
+    """Given more SfM points than max_gaussians,
+    When they are limited,
+    Then exactly max_gaussians remain, the same ones for the same seed (vram-guard W1).
+    """
+    import torch
+
+    from dronescan.recon import train as trainer
+
+    def data() -> trainer.Data:
+        points = torch.arange(3000, dtype=torch.float32).repeat(3, 1).T
+        return trainer.Data([], torch.empty(0), torch.empty(0), [], points, points / 3000, 1.0)
+
+    first, second = data(), data()
+    trainer.limit_points(first, 1000, seed=0)
+    trainer.limit_points(second, 1000, seed=0)
+
+    assert len(first.points) == 1000 == len(first.colors)
+    assert torch.equal(first.points, second.points)
+    assert torch.equal(first.colors * 3000, first.points)  # rows stay paired

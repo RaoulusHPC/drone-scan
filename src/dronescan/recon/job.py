@@ -63,7 +63,8 @@ class TrainResult(BaseModel):
     packed: bool = False
     images_train: int = 0
     images_holdout: int = 0
-    init_points: int = 0
+    init_points: int = 0  # points of the SfM cloud
+    init_points_used: int = 0  # after thinning to max_gaussians
     gaussians: int = 0
     psnr_db: float | None = None  # mean over the held-out frames
     ssim: float | None = None

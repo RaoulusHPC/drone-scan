@@ -182,7 +182,9 @@ def run_smoke(root: Path, golden: Golden, workspace: Path) -> SmokeResult:
     if splat is None or splat.status != "ok":
         raise SmokeError(f"Manifest der Stufe '{SPLAT_STAGE}' fehlt oder ist nicht ok.")
     metrics = manifest.metrics
-    peaks = [p for p in (manifest.peak_vram_mb, splat.peak_vram_mb) if p is not None]
+    # only a process peak (incl. CUDA context) counts as "gesamt"; the allocator fallback is low
+    splat_peak = splat.peak_vram_mb if splat.metrics.get("peak_vram_source") == "process" else None
+    peaks = [p for p in (manifest.peak_vram_mb, splat_peak) if p is not None]
     measured = Measured(
         seconds=round(seconds, 1),
         poses_seconds=round(poses_seconds, 1),
@@ -193,7 +195,7 @@ def run_smoke(root: Path, golden: Golden, workspace: Path) -> SmokeResult:
         psnr_db=splat.metrics.get("psnr_db"),
         ssim=splat.metrics.get("ssim"),
         gaussians=splat.metrics.get("gaussians"),
-        splat_peak_vram_mib=splat.peak_vram_mb,
+        splat_peak_vram_mib=splat_peak,
     )
     limit = os.environ.get("DRONESCAN_VRAM_LIMIT_GB")
     violations = evaluate(golden, measured, float(limit) if limit else None)
