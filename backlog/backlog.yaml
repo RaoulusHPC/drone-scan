@@ -196,9 +196,9 @@ stories:
     want: "einen schnellen End-to-End-Test auf einem Kurzclip"
     so: "Regressionen in der Pipeline sofort sichtbar werden"
     ac:
-      - "`make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat."
+      - "`make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Kameraposen (ingest + sfm)."
       - "`make test-gpu` läuft mit 5,0-GiB-Allocator-Grenze auf der GTX 1060; Überschreitung lässt den Test fehlschlagen."
-      - "Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert."
+      - "Schwellwerte (registrierte Frames, Reprojektionsfehler) in `tests/golden/` versioniert."
     prio: Must
     sp: 3
     ms: m1
@@ -280,7 +280,7 @@ stories:
     want: "dass das System meine Kamera (Drohne/Handy/Action-Cam) passend behandelt"
     so: "die Rekonstruktion auch bei Weitwinkel/Fisheye gelingt"
     ac:
-      - "Kameraprofile (YAML) für Smartphone, DJI Neo 2, Tello, RunCam Thumb 2 mit Kameramodell (PINHOLE/OPENCV/OPENCV_FISHEYE)."
+      - "Kameraprofile (YAML) mit Kameramodell (PINHOLE/OPENCV/OPENCV_FISHEYE); zunächst nur Smartphone. Drohnenprofile (DJI Neo 2, Tello, RunCam Thumb 2) folgen, sobald ein Gerät vorhanden ist (M3)."
       - "Ohne Profil: automatische Schätzung durch COLMAP, Ergebnis wird im Scan gespeichert."
       - "Optionaler Kalibrierbefehl mit Schachbrett-/ChArUco-Video."
     prio: Should
@@ -362,7 +362,7 @@ stories:
     ac:
       - "`quality.json` bewertet Schärfe, Belichtung, Bewegungsgeschwindigkeit, Abdeckung (grob)."
       - "Bei ungenügender Qualität: Exit 20 und ≥ 1 konkreter Hinweis (z. B. „Licht einschalten“, „langsamer fliegen“) (Q-9)."
-      - "Report im Viewer verständlich dargestellt (Ampel)."
+      - "`quality.json` je Flug und Gesamtampel je Scan (grün/gelb/rot) mit Hinweisen, CLI-Ausgabe; die Viewer-Darstellung folgt mit US-028."
     prio: Must
     sp: 3
     ms: m1
@@ -477,6 +477,8 @@ stories:
       - "Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`."
       - "OOM → automatische Wiederholung mit kleinerem Profil (einmal)."
       - "Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert)."
+      - "`make test-gpu` führt die PyTorch-GPU-Tests im Worker-Container aus; `test_real_gpu_respects_limit` läuft real auf der GTX 1060 mit 5,0-GiB-Grenze (vor neuem Splat-Code)."
+      - "`make smoke` erzeugt zusätzlich einen Mini-Splat (`metrics.psnr_db` im Manifest), PSNR-Schwelle in `tests/golden/kurz.yaml`; Posen + Mini-Splat < 2 min auf der GTX 1060."
     prio: Must
     sp: 8
     ms: m1
@@ -508,6 +510,7 @@ stories:
       - "Splat-Rendering (three.js-basiert) mit Modi Orbit und Begehung (Augenhöhe, Bodenkollision grob)."
       - "Touch: Wischen = Blick, Zwei-Finger = Bewegung; Desktop: WASD + Maus."
       - "Ladeanzeige und Fallback-Meldung bei fehlender WebGL2-Unterstützung."
+      - "Der Qualitätsreport aus US-019 wird im Viewer als Ampel mit Hinweisen dargestellt."
     prio: Must
     sp: 8
     ms: m1
