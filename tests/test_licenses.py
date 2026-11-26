@@ -256,8 +256,10 @@ MODEL = {
     "name": "aliked-n16",
     "version": "1.0",
     "sha256": "a" * 64,
-    "license": "BSD-3-Clause",
+    "weights_license": "BSD-3-Clause",
+    "code_license": "BSD-3-Clause",
     "source": "https://github.com/Shiaoming/ALIKED",
+    "url": "https://example.org/aliked-n16.pth",
 }
 
 
@@ -266,7 +268,9 @@ def test_models_lock_with_nc_weights_is_marked(tmp_path: Path, policy: Policy) -
     When the gate checks it,
     Then the build passes and the model is marked as NC (ADR-0012).
     """
-    lock = write_models_lock(tmp_path / "models.lock", [{**MODEL, "license": "CC-BY-NC-4.0"}])
+    lock = write_models_lock(
+        tmp_path / "models.lock", [{**MODEL, "weights_license": "CC-BY-NC-4.0"}]
+    )
 
     components, findings = model_components(lock)
     all_findings = findings + [f for c in components for f in check_component(c, policy)]
@@ -294,11 +298,38 @@ def test_cc_by_is_allowed_for_models_only(tmp_path: Path, policy: Policy) -> Non
     When used by a model vs. a Python package,
     Then the model passes and the package fails.
     """
-    lock = write_models_lock(tmp_path / "models.lock", [{**MODEL, "license": "CC-BY-4.0"}])
+    lock = write_models_lock(tmp_path / "models.lock", [{**MODEL, "weights_license": "CC-BY-4.0"}])
     components, findings = model_components(lock)
 
     assert findings == [] and errors(check_component(components[0], policy)) == []
     assert errors(check_component(comp("CC-BY-4.0"), policy))
+
+
+def test_code_license_of_a_model_is_checked_too(tmp_path: Path, policy: Policy) -> None:
+    """Given models.lock entries with permissive weights but NC resp. proprietary model code,
+    When the gate checks them (KAN-24: code and weights license),
+    Then NC code is marked as NC and the proprietary code license is an error.
+    """
+    nc_code = write_models_lock(tmp_path / "nc.lock", [{**MODEL, "code_license": "CC-BY-NC-4.0"}])
+    bad_code = write_models_lock(tmp_path / "bad.lock", [{**MODEL, "code_license": "Proprietary"}])
+
+    def gate(lock: Path) -> list[Finding]:
+        components, findings = model_components(lock)
+        return findings + [f for c in components for f in check_component(c, policy)]
+
+    assert errors(gate(nc_code)) == [] and "(Code)" in nc(gate(nc_code))[0].subject
+    assert [f.subject for f in errors(gate(bad_code))] == ["model:aliked-n16 (Code)==1.0"]
+
+
+def test_plain_http_model_url_is_a_warning(tmp_path: Path) -> None:
+    """Given a models.lock entry with a loopback http URL (local test server or mirror),
+    When the gate reads it,
+    Then it warns so real entries use https.
+    """
+    entry = {**MODEL, "url": "http://127.0.0.1:8000/aliked-n16.pth"}
+    _, findings = model_components(write_models_lock(tmp_path / "models.lock", [entry]))
+
+    assert [f.severity for f in findings] == ["warning"] and "https" in findings[0].message
 
 
 def test_incomplete_models_lock_entry_fails(tmp_path: Path) -> None:
@@ -384,14 +415,14 @@ def test_main_exit_code_reflects_violations(
     shutil.copytree(ROOT / "licenses", repo / "licenses")
     shutil.copy(ROOT / "uv.lock", repo / "uv.lock")
     (repo / "src").mkdir()
-    write_models_lock(repo / "models.lock", [{**MODEL, "license": "CC-BY-NC-4.0"}])
+    write_models_lock(repo / "models.lock", [{**MODEL, "weights_license": "CC-BY-NC-4.0"}])
     capsys.readouterr()
 
     assert main([str(repo)]) == 0
     out = capsys.readouterr().out
     assert "NC      model:aliked" in out and "2 NC-Komponenten" in out  # + SiftGPU image
 
-    write_models_lock(repo / "models.lock", [{**MODEL, "license": "Proprietary"}])
+    write_models_lock(repo / "models.lock", [{**MODEL, "weights_license": "Proprietary"}])
     assert main([str(repo)]) == 1
     assert "Lizenz-Gate fehlgeschlagen" in capsys.readouterr().out
 

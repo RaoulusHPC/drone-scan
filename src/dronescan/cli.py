@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, cast
 
 import typer
+import yaml
 from pydantic import ValidationError
 
 from dronescan import __version__
@@ -26,6 +27,7 @@ from dronescan.capture.scan import ScanError, add_flight, create_scan, resolve_s
 from dronescan.common.camera_models import CAMERA_MODELS
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 from dronescan.common.logging import configure_logging
+from dronescan.common.models_lock import ModelsLock, load_models_lock, model_status
 from dronescan.common.stage import ExitCode, register_stage
 from dronescan.ingest.stage import IngestStage
 from dronescan.recon.stage import ReconStage
@@ -94,9 +96,14 @@ WorkspaceOption = Annotated[
 scan_app = typer.Typer(help="Scans anlegen.", no_args_is_help=True)
 flight_app = typer.Typer(help="Flüge (Videos) zu einem Scan hinzufügen.", no_args_is_help=True)
 camera_app = typer.Typer(help="Kameraprofile anzeigen und kalibrieren.", no_args_is_help=True)
+models_app = typer.Typer(
+    help="Modellgewichte aus models.lock (einmaliger Download, danach offline).",
+    no_args_is_help=True,
+)
 app.add_typer(scan_app, name="scan")
 app.add_typer(flight_app, name="flight")
 app.add_typer(camera_app, name="camera")
+app.add_typer(models_app, name="models")
 
 
 @scan_app.command("create")
@@ -235,6 +242,96 @@ def camera_calibrate(
         f"{result.views} Ansichten, Restfehler {result.profile.rms_error_px:.3f} px). "
         f"Verwenden mit `drone-scan flight add <scan> <video> --camera {target}`."
     )
+
+
+LockOption = Annotated[
+    Path,
+    typer.Option("--lock", envvar="DRONESCAN_MODELS_LOCK", help="Modell-Registry models.lock."),
+]
+ModelsDirOption = Annotated[
+    Path,
+    typer.Option(
+        "--models-dir",
+        envvar="DRONESCAN_MODELS_DIR",
+        help="Verzeichnis der heruntergeladenen Modellgewichte.",
+    ),
+]
+
+
+def _read_lock(lock: Path) -> ModelsLock:
+    if not lock.is_file():
+        typer.echo(
+            f"'{lock}' nicht gefunden. Abhilfe: im Repository-Verzeichnis ausführen oder den "
+            "Pfad mit --lock bzw. DRONESCAN_MODELS_LOCK angeben.",
+            err=True,
+        )
+        raise typer.Exit(code=int(ExitCode.INPUT_MISSING))
+    try:
+        return load_models_lock(lock)
+    except (ValueError, OSError, yaml.YAMLError) as exc:  # ValidationError is a ValueError
+        detail = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        typer.echo(
+            f"'{lock.name}' ist ungültig ({detail}). Abhilfe: jedes Modell braucht name, "
+            "version, source, url (https), sha256, weights_license und code_license.",
+            err=True,
+        )
+        raise typer.Exit(code=int(ExitCode.ERROR)) from exc
+
+
+@models_app.command("list")
+def models_list(
+    lock: LockOption = Path("models.lock"), models_dir: ModelsDirOption = Path("models")
+) -> None:
+    """Modelle aus models.lock mit Lizenzen und lokalem Status anzeigen (offline)."""
+    registry = _read_lock(lock)
+    if not registry.models:
+        typer.echo("models.lock enthält keine Modelle.")
+    for entry in registry.models:
+        typer.echo(
+            f"{entry.name} {entry.version}: {model_status(entry, models_dir)}, Gewichte "
+            f"{entry.weights_license}, Code {entry.code_license}, Quelle {entry.source}"
+        )
+
+
+@models_app.command("pull")
+def models_pull(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(help="Modellnamen aus models.lock (Standard: alle)."),
+    ] = None,
+    lock: LockOption = Path("models.lock"),
+    models_dir: ModelsDirOption = Path("models"),
+    force: Annotated[
+        bool, typer.Option("--force", help="Auch gültige, vorhandene Dateien neu laden.")
+    ] = False,
+) -> None:
+    """Gelistete Modelle einmalig herunterladen und per SHA-256 prüfen.
+
+    Einziger Netzwerkzugriff von drone-scan; eine Hash-Abweichung bricht ab.
+    """
+    from dronescan.common.models_pull import PullError, pull_model
+
+    registry = _read_lock(lock)
+    unknown = [name for name in names or [] if registry.get(name) is None]
+    if unknown:
+        known = ", ".join(m.name for m in registry.models) or "keine"
+        raise typer.BadParameter(
+            f"Nicht in models.lock: {', '.join(unknown)}. Gelistet: {known}. Abhilfe: nur "
+            "gelistete Modelle laden; neue Einträge prüft der PO (Lizenz der Gewichte).",
+            param_hint="NAMES",
+        )
+    entries = [e for e in registry.models if not names or e.name in names]
+    if not entries:
+        typer.echo("models.lock enthält keine Modelle, nichts zu laden.")
+        return
+    for entry in entries:
+        typer.echo(f"{entry.name} {entry.version} ({entry.weights_license}) …")
+        try:
+            result = pull_model(entry, models_dir, force=force, progress=typer.echo)
+        except PullError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=int(ExitCode.ERROR)) from exc
+        typer.echo(f"{entry.name}: {result}, SHA-256 geprüft.")
 
 
 register_stage(app, IngestStage)

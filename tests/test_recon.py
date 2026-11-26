@@ -371,6 +371,17 @@ def test_trainer_container_is_offline_unprivileged_and_on_gpu_0(
     assert call[-8:-6] == ["--scene", "/recon/undistorted/sparse"]
 
 
+@pytest.mark.usefixtures("block_network")
+def test_stage_runs_without_network(scan: Path, docker: FakeDocker) -> None:
+    """Given a blocked network (CLAUDE.md rule 3, KAN-24),
+    When the stage runs,
+    Then it succeeds: the runner itself needs no network, the containers have none.
+    """
+    result = recon(scan)
+
+    assert result.exit_code is ExitCode.OK, result.manifest.error
+
+
 def test_valid_manifest_is_a_cache_hit_and_force_retrains(scan: Path, docker: FakeDocker) -> None:
     """Given a successful run,
     When the stage runs again without and with --force,

@@ -533,20 +533,32 @@ def model_components(models_lock: Path) -> tuple[list[Component], list[Finding]]
             _error(
                 "models.lock",
                 f"Eintrag ungültig oder unvollständig ({detail}). Abhilfe: jedes Modell braucht "
-                "name, version, sha256 (64 Hex-Zeichen), license und source.",
+                "name, version, source, url (https), sha256 (64 Hex-Zeichen), weights_license "
+                "und code_license.",
             )
         ]
+    insecure = [
+        _warning(
+            f"model:{m.name}=={m.version}",
+            "Download-URL ohne https (nur lokaler Test-Server oder Mirror). Abhilfe: für "
+            "echte Einträge die https-Adresse der Quelle eintragen.",
+        )
+        for m in lock.models
+        if not m.url.startswith("https://")
+    ]
+    # The weights decide (ADR-0007); the model code is checked as well (KAN-24).
     return [
         Component(
             kind="model",
-            name=m.name,
+            name=name,
             version=m.version,
-            license=m.license,
+            license=license_,
             scope="runtime",
-            source=m.source,
+            source=f"{m.source} {m.url}",
         )
         for m in lock.models
-    ], []
+        for name, license_ in ((m.name, m.weights_license), (f"{m.name} (Code)", m.code_license))
+    ], insecure
 
 
 def _imported_modules(tree: ast.AST) -> Iterable[tuple[str, int]]:

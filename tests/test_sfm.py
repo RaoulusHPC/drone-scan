@@ -373,6 +373,17 @@ def test_container_is_offline_unprivileged_and_sees_one_gpu(scan: Path, docker: 
             assert "NVIDIA_VISIBLE_DEVICES=void" in call
 
 
+@pytest.mark.usefixtures("block_network")
+def test_stage_runs_without_network(scan: Path, docker: FakeDocker) -> None:
+    """Given a blocked network (CLAUDE.md rule 3, KAN-24),
+    When the stage runs,
+    Then it succeeds: the runner itself needs no network, the containers have none.
+    """
+    docker.models(10)
+
+    assert sfm(scan).exit_code is ExitCode.OK
+
+
 def test_gpu_device_uses_the_same_variable_as_compose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
