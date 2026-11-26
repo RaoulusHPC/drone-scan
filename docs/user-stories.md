@@ -190,7 +190,7 @@ Als **Pilot** möchte ich dass das System meine Kamera (Drohne/Handy/Action-Cam)
 
 **Akzeptanzkriterien**
 
-- [ ] Kameraprofile (YAML) für Smartphone, DJI Neo 2, Tello, RunCam Thumb 2 mit Kameramodell (PINHOLE/OPENCV/OPENCV_FISHEYE).
+- [ ] Kameraprofile (YAML) mit Kameramodell (PINHOLE/OPENCV/OPENCV_FISHEYE); zunächst nur Smartphone. Drohnenprofile (DJI Neo 2, Tello, RunCam Thumb 2) folgen, sobald ein Gerät vorhanden ist (M3).
 - [ ] Ohne Profil: automatische Schätzung durch COLMAP, Ergebnis wird im Scan gespeichert.
 - [ ] Optionaler Kalibrierbefehl mit Schachbrett-/ChArUco-Video.
 
@@ -253,7 +253,7 @@ Als **Pilot** möchte ich nach dem Upload erfahren, ob meine Aufnahme gut genug 
 
 - [ ] `quality.json` bewertet Schärfe, Belichtung, Bewegungsgeschwindigkeit, Abdeckung (grob).
 - [ ] Bei ungenügender Qualität: Exit 20 und ≥ 1 konkreter Hinweis (z. B. „Licht einschalten“, „langsamer fliegen“) (Q-9).
-- [ ] Report im Viewer verständlich dargestellt (Ampel).
+- [ ] `quality.json` je Flug und Gesamtampel je Scan (grün/gelb/rot) mit Hinweisen, CLI-Ausgabe; die Viewer-Darstellung folgt mit US-028.
 
 ### US-020 / KAN-35: Belichtungs- und Weißabgleichsnormalisierung
 
@@ -342,6 +342,8 @@ Als **Präsentierende (Makler/Verkäufer)** möchte ich aus den Kameraposen eine
 - [ ] Validierungsframes (z. B. jedes 8.) → PSNR/SSIM in `metrics.json`.
 - [ ] OOM → automatische Wiederholung mit kleinerem Profil (einmal).
 - [ ] Referenzwohnung 60 m² in ≤ 60 min Gesamtlaufzeit (Q-1, Messung dokumentiert).
+- [ ] `make test-gpu` führt die PyTorch-GPU-Tests im Worker-Container aus; `test_real_gpu_respects_limit` läuft real auf der GTX 1060 mit 5,0-GiB-Grenze (vor neuem Splat-Code).
+- [ ] `make smoke` erzeugt zusätzlich einen Mini-Splat (`metrics.psnr_db` im Manifest), PSNR-Schwelle in `tests/golden/kurz.yaml`; Posen + Mini-Splat < 2 min auf der GTX 1060.
 
 ### US-027 / KAN-42: Szenenkomprimierung für Smartphone-Wiedergabe
 
@@ -365,6 +367,7 @@ Als **Betrachtende (Interessent)** möchte ich die Szene im Browser mit Touch-Ge
 - [ ] Splat-Rendering (three.js-basiert) mit Modi Orbit und Begehung (Augenhöhe, Bodenkollision grob).
 - [ ] Touch: Wischen = Blick, Zwei-Finger = Bewegung; Desktop: WASD + Maus.
 - [ ] Ladeanzeige und Fallback-Meldung bei fehlender WebGL2-Unterstützung.
+- [ ] Der Qualitätsreport aus US-019 wird im Viewer als Ampel mit Hinweisen dargestellt.
 
 ### US-029 / KAN-44: Raumliste und Sprungpunkte
 
@@ -760,9 +763,9 @@ Als **Entwickler (PO + Claude Code)** möchte ich einen schnellen End-to-End-Tes
 
 **Akzeptanzkriterien**
 
-- [ ] `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Posen + Mini-Splat. *(Stand KAN-26: Posen in ca. 50 s umgesetzt, Mini-Splat-Teil wartet auf KAN-41.)*
+- [ ] `make smoke` verarbeitet `data/samples/kurz.mp4` in < 2 min zu Kameraposen (ingest + sfm).
 - [ ] `make test-gpu` läuft mit 5,0-GiB-Allocator-Grenze auf der GTX 1060; Überschreitung lässt den Test fehlschlagen.
-- [ ] Schwellwerte (registrierte Frames, PSNR) in `tests/golden/` versioniert.
+- [ ] Schwellwerte (registrierte Frames, Reprojektionsfehler) in `tests/golden/` versioniert.
 
 ### US-012 / KAN-27: Benchmark-Suite auf Referenzräumen
 
