@@ -29,6 +29,8 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from dronescan.capture.camera import CameraModel
+
 DEFAULT_PROFILE = "low_vram_6gb"
 ENV_PREFIX = "DRONESCAN_"
 PROFILE_ENV_VAR = f"{ENV_PREFIX}PROFILE"
@@ -153,8 +155,9 @@ class SfmSettings(_Section):
     max_num_matches: PositiveInt = Field(
         description="Features per image the GPU matcher can hold (determines its VRAM)."
     )
-    camera_model: str = Field(
-        pattern=r"^[A-Z_]+$", description="COLMAP camera model, one camera per flight."
+    camera_model: CameraModel = Field(
+        description="COLMAP camera model of flights without a camera profile (KAN-29); COLMAP "
+        "estimates the intrinsics, one camera per flight."
     )
     exhaustive_max_keyframes: PositiveInt = Field(
         description="Up to this many keyframes all pairs are matched, above it sequential "
@@ -207,6 +210,35 @@ class SfmSettings(_Section):
         return self
 
 
+class CalibrationSettings(_Section):
+    """`drone-scan camera calibrate` (KAN-29): pattern video -> camera profile."""
+
+    sample_fps: float = Field(
+        gt=0, le=60, description="Frames per second searched for the pattern."
+    )
+    max_image_edge_px: PositiveInt = Field(
+        description="Longest edge of the analysed frames; the profile refers to this size."
+    )
+    min_corners_per_view: int = Field(
+        ge=4, description="Pattern corners a frame needs to count as a view."
+    )
+    min_views: PositiveInt = Field(
+        description="Fewer views than this cannot be calibrated (exit 20)."
+    )
+    max_views: PositiveInt = Field(
+        description="Views used at most, evenly spread over the video (computing time)."
+    )
+    max_rms_error_px: float = Field(
+        gt=0, description="Reprojection error above which the calibration is rejected (exit 20)."
+    )
+
+    @model_validator(mode="after")
+    def _view_range(self) -> Self:
+        if self.min_views > self.max_views:
+            raise ValueError("min_views must not exceed max_views")
+        return self
+
+
 class SplatSettings(_Section):
     max_iterations: PositiveInt
     max_gaussians: PositiveInt
@@ -253,6 +285,7 @@ class Settings(BaseSettings):
     gpu: GpuSettings
     ingest: IngestSettings
     sfm: SfmSettings
+    calibration: CalibrationSettings
     splat: SplatSettings
     search: SearchSettings
 

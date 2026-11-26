@@ -22,6 +22,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
+from dronescan.capture.camera import CameraProfile
 from dronescan.capture.probe import ProbeError, VideoMeta, probe_video
 
 SCAN_FILE = "scan.yaml"
@@ -39,6 +40,7 @@ class FlightMeta(VideoMeta):
     source_name: str
     sha256: str
     added: datetime
+    camera: CameraProfile | None = None  # copy of the profile; None: COLMAP estimates (KAN-29)
 
 
 class ScanMeta(BaseModel):
@@ -137,8 +139,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def add_flight(scan_dir: Path, video: Path) -> FlightMeta:
-    """Validate ``video``, copy it into the scan and register it in ``scan.yaml``."""
+def add_flight(scan_dir: Path, video: Path, camera: CameraProfile | None = None) -> FlightMeta:
+    """Validate ``video``, copy it into the scan and register it in ``scan.yaml``.
+
+    ``camera`` is stored as a copy, so the scan stays reproducible if the profile changes.
+    """
     load_scan(scan_dir)  # fail early if scan.yaml is unreadable
     if not video.is_file():
         raise ScanError(f"Video '{video.name}' nicht gefunden. Abhilfe: Pfad prüfen.")
@@ -170,6 +175,7 @@ def add_flight(scan_dir: Path, video: Path) -> FlightMeta:
                 source_name=video.name,
                 sha256=_sha256(target),
                 added=datetime.now(UTC),
+                camera=camera,
             )
             meta.flights.append(flight)
             _write_scan(scan_dir, meta)

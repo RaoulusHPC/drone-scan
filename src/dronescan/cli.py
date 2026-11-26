@@ -9,12 +9,20 @@ User-facing texts are German, code and identifiers English (CLAUDE.md).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from pydantic import ValidationError
 
 from dronescan import __version__
+from dronescan.capture.camera import (
+    CAMERA_MODELS,
+    CameraError,
+    available_cameras,
+    is_camera_name,
+    load_camera,
+    write_camera,
+)
 from dronescan.capture.scan import ScanError, add_flight, create_scan, resolve_scan_dir
 from dronescan.common.config import ProfileError, describe_validation_error, load_settings
 from dronescan.common.logging import configure_logging
@@ -84,8 +92,10 @@ WorkspaceOption = Annotated[
 
 scan_app = typer.Typer(help="Scans anlegen.", no_args_is_help=True)
 flight_app = typer.Typer(help="Flüge (Videos) zu einem Scan hinzufügen.", no_args_is_help=True)
+camera_app = typer.Typer(help="Kameraprofile anzeigen und kalibrieren.", no_args_is_help=True)
 app.add_typer(scan_app, name="scan")
 app.add_typer(flight_app, name="flight")
+app.add_typer(camera_app, name="camera")
 
 
 @scan_app.command("create")
@@ -106,16 +116,115 @@ def flight_add(
     scan: Annotated[str, typer.Argument(help="Scan-ID oder Pfad zum Scan-Verzeichnis.")],
     video: Annotated[Path, typer.Argument(help="Video eines Akkuflugs (MP4/MOV).")],
     workspace: WorkspaceOption = Path("workspace"),
+    camera: Annotated[
+        str | None,
+        typer.Option(
+            "--camera",
+            help="Kameraprofil: Name (siehe `drone-scan camera list`) oder Pfad zu einer "
+            "Profildatei. Ohne Angabe schätzt COLMAP die Kamera.",
+        ),
+    ] = None,
 ) -> None:
     """Video kopieren, Metadaten lesen und eine Flug-ID vergeben."""
     try:
-        flight = add_flight(resolve_scan_dir(workspace, scan), video)
+        profile = load_camera(camera) if camera is not None else None
+    except CameraError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--camera") from exc
+    try:
+        flight = add_flight(resolve_scan_dir(workspace, scan), video, camera=profile)
     except ScanError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=int(ExitCode.INPUT_MISSING)) from exc
     typer.echo(
         f"Flug {flight.id} hinzugefügt: {flight.display_width}x{flight.display_height}, "
         f"{flight.fps:.2f} fps, {flight.duration_s:.1f} s, {flight.codec}"
+        + (f", Kamera {profile.name}" if profile else "")
+    )
+
+
+@camera_app.command("list")
+def camera_list() -> None:
+    """Mitgelieferte Kameraprofile anzeigen."""
+    for name in available_cameras():
+        profile = load_camera(name)
+        values = "mit Intrinsik" if profile.intrinsics else "Intrinsik schätzt COLMAP"
+        typer.echo(f"{name}: {profile.model}, {values}. {profile.description}")
+
+
+@camera_app.command("calibrate")
+def camera_calibrate(
+    video: Annotated[Path, typer.Argument(help="Video des Kalibriermusters.")],
+    name: Annotated[
+        str, typer.Option("--name", help="Name des Profils, z. B. 'mein_handy' (a-z, 0-9, _ -).")
+    ],
+    cols: Annotated[int, typer.Option("--cols", min=3, help="Felder (Quadrate) waagrecht.")],
+    rows: Annotated[int, typer.Option("--rows", min=3, help="Felder (Quadrate) senkrecht.")],
+    square_mm: Annotated[
+        float, typer.Option("--square-mm", min=0.1, help="Gemessene Kantenlänge eines Felds (mm).")
+    ],
+    pattern: Annotated[
+        str, typer.Option("--pattern", help="Muster: chessboard oder charuco.")
+    ] = "chessboard",
+    marker_mm: Annotated[
+        float | None,
+        typer.Option("--marker-mm", min=0.1, help="ChArUco: Kantenlänge eines Markers (mm)."),
+    ] = None,
+    dictionary: Annotated[
+        str, typer.Option("--dictionary", help="ChArUco: ArUco-Wörterbuch.")
+    ] = "DICT_5X5_100",
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            help=f"COLMAP-Kameramodell: {', '.join(CAMERA_MODELS)} (Fisheye: OPENCV_FISHEYE).",
+        ),
+    ] = "OPENCV",
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Zieldatei (Standard: <name>.yaml im aktuellen Ordner)."),
+    ] = None,
+    profile: Annotated[
+        str | None, typer.Option("--profile", help="Konfigurationsprofil, z. B. low_vram_6gb.")
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Vorhandene Zieldatei ersetzen.")] = False,
+) -> None:
+    """Kamera mit einem Schachbrett- oder ChArUco-Video kalibrieren (optional)."""
+    from dronescan.capture.calibration import Board, CalibrationError, Pattern, calibrate
+
+    if not is_camera_name(name):
+        raise typer.BadParameter(
+            "Nur Kleinbuchstaben, Ziffern, '_' und '-' verwenden.", param_hint="--name"
+        )
+    if pattern not in ("chessboard", "charuco"):
+        raise typer.BadParameter("chessboard oder charuco angeben.", param_hint="--pattern")
+    if model not in CAMERA_MODELS:
+        raise typer.BadParameter(f"Eines von {', '.join(CAMERA_MODELS)}.", param_hint="--model")
+    target = output or Path(f"{name}.yaml")
+    if target.exists() and not force:
+        raise typer.BadParameter(
+            f"'{target.name}' existiert bereits. Abhilfe: --force oder eine andere --output.",
+            param_hint="--output",
+        )
+    try:
+        settings = load_settings(profile)
+    except ProfileError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--profile / DRONESCAN_PROFILE") from exc
+    except ValidationError as exc:
+        typer.echo(describe_validation_error(exc, profile), err=True)
+        raise typer.Exit(code=int(ExitCode.ERROR)) from exc
+    board = Board(cast(Pattern, pattern), cols, rows, square_mm, marker_mm, dictionary)
+    try:
+        result = calibrate(video, board, model, name, settings.calibration)
+    except CalibrationError as exc:
+        typer.echo(f"Kalibrierung: {exc}", err=True)
+        for hint in exc.hints:
+            typer.echo(f"Hinweis: {hint}", err=True)
+        raise typer.Exit(code=int(exc.exit_code)) from exc
+    write_camera(result.profile, target)
+    typer.echo(
+        f"Kameraprofil gespeichert: {target.name} ({result.profile.model}, "
+        f"{result.views} Ansichten, Restfehler {result.profile.rms_error_px:.3f} px). "
+        f"Verwenden mit `drone-scan flight add <scan> <video> --camera {target}`."
     )
 
 

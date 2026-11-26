@@ -10,3 +10,15 @@ Exitcodes aller Pipeline-Stufen (`drone-scan <stufe> --scan <dir>`), siehe Archi
 | 10 | `input_missing` | Eingabe oder Scan-Verzeichnis fehlt (z. B. Video nicht importiert, vorherige Stufe nicht gelaufen, Tippfehler in `--scan`) | Vorherige Stufe bzw. Import ausführen, Pfad mit `--scan` prüfen. Gilt auch für `flight add`: Video fehlt, defekt, ohne Videospur oder nicht unterstütztes Format, Scan nicht angelegt (`drone-scan scan create`). `ingest`: Scan ohne Video oder Video nicht dekodierbar (neu importieren). `sfm`: `ingest` nicht erfolgreich gelaufen oder Einzelbilder eines Flugs fehlen |
 | 20 | `quality_insufficient` | Aufnahmequalität reicht nicht. `hints` enthält immer konkrete Hinweise | Hinweisen folgen (bei `ingest`: zu wenige verschiedene scharfe Bilder, oder die Gesamtampel aus Schärfe/Belichtung/Bewegung/Abdeckung steht auf Rot, Einzelbewertung je Flug in `ingest/<flight_id>/quality.json`, Zusammenfassung in `ingest/manifest.json` unter `metrics.quality`; z. B. langsamer filmen, Licht an, AprilTags, KAN-34; bei `sfm`: weniger als 80 % der Einzelbilder im größten Teilmodell, die Messwerte stehen unter `metrics`) und neu aufnehmen |
 | 30 | `oom` | Grafik- oder Arbeitsspeicher reicht nicht | Profil `low_vram_6gb`, andere GPU-Programme schließen, kürzeres Video. `sfm` wiederholt selbst einmal mit kleineren Werten (`oom_retry_*`). Die Job-Queue wiederholt einmal mit kleinerem Profil |
+
+### `drone-scan camera calibrate` (KAN-29)
+
+Der Kalibrierbefehl ist keine Pipeline-Stufe (kein Manifest), nutzt aber dieselben Codes:
+
+| Code | Bedeutung | Abhilfe |
+|---|---|---|
+| 0 | Profil geschrieben (`--output`, Standard `<name>.yaml`) | Mit `drone-scan flight add <scan> <video> --camera <datei>` verwenden |
+| 1 | OpenCV fehlt, ChArUco ohne gültige `--marker-mm`, unbekanntes `--dictionary` | `uv sync --extra calibration`; Markergröße messen und angeben |
+| 2 | Aufruffehler (ungültiger `--name`, `--pattern`, `--model`, Zieldatei existiert) | Aufruf prüfen, `--force` zum Ersetzen |
+| 10 | Video fehlt oder ist nicht lesbar | Pfad prüfen, Video neu exportieren |
+| 20 | Muster in zu wenigen Bildern gefunden (`calibration.min_views`) oder Restfehler zu groß (`calibration.max_rms_error_px`) | Muster scharf, flach und aus vielen Winkeln bis in die Bildecken filmen; `--cols`/`--rows` zählen Felder |

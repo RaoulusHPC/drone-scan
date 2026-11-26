@@ -4,19 +4,24 @@
 All flights are reconstructed together (one camera per flight). ``sfm/colmap/models/`` keeps
 every partial model, ``sfm/colmap/sparse/0`` is the largest one as COLMAP text. It only exists
 if enough keyframes are registered, so later stages never build on a fragment.
+
+The camera model of a flight comes from its camera profile in ``scan.yaml`` (KAN-29), without
+one from ``sfm.camera_model``. Intrinsics of a profile are start values that COLMAP refines.
+The estimated intrinsics are stored per flight as a camera profile in ``sfm/cameras/``.
 """
 
 from __future__ import annotations
 
 import math
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
 import structlog
 
-from dronescan.capture.scan import SCAN_FILE, ScanError, load_scan
+from dronescan.capture.camera import CameraProfile, Intrinsics, write_camera
+from dronescan.capture.scan import SCAN_FILE, FlightMeta, ScanError, load_scan
 from dronescan.common.config import Settings, SfmSettings
 from dronescan.common.stage import (
     GPU_OOM_HINT,
@@ -30,7 +35,14 @@ from dronescan.common.stage import (
     StageError,
     load_manifest,
 )
-from dronescan.ingest.stage import FRAMES_DIR, FRAMES_TABLE, NO_FLIGHT_HINT, WRITE_HINT, IngestStage
+from dronescan.ingest.stage import (
+    FRAMES_DIR,
+    FRAMES_TABLE,
+    NO_FLIGHT_HINT,
+    WRITE_HINT,
+    FlightSummary,
+    IngestStage,
+)
 from dronescan.sfm.colmap import (
     COLMAP_IMAGE,
     Colmap,
@@ -42,10 +54,11 @@ from dronescan.sfm.colmap import (
     StepResult,
     image_id,
 )
-from dronescan.sfm.model import ModelReport, SparseModel, list_models, read_report
+from dronescan.sfm.model import ModelReport, SparseModel, list_models, read_cameras, read_report
 
 COLMAP_DIR = "colmap"
 SPARSE_DIR = "sparse/0"
+CAMERAS_DIR = "cameras"
 _MODELS_DIR = "models"
 _DATABASE = "database.db"
 _IMAGE_LIST = "image_list.txt"
@@ -85,7 +98,33 @@ FLIGHT_HINT = (
     "erneut aufnehmen und mit einem bereits erfassten Bereich beginnen."
 )
 
+CAMERA_ASPECT_WARNING = (
+    "Flug {flight}: Die Werte des Kameraprofils '{profile}' gelten für ein anderes "
+    "Seitenverhältnis ({profile_size}) als die Einzelbilder ({frame_size}). COLMAP schätzt die "
+    "Intrinsik deshalb selbst."
+)
+CAMERA_ASPECT_HINT = (
+    "Ein Kameraprofil gilt nur für den Videomodus, in dem kalibriert wurde: im selben Modus "
+    "aufnehmen oder für diesen Modus neu kalibrieren (`drone-scan camera calibrate`)."
+)
+
 log = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _CameraSetup:
+    """What COLMAP is told about a camera: model and optional start values."""
+
+    model: str
+    params: tuple[float, ...] | None = None
+
+
+@dataclass
+class _CameraGroup:
+    """Flights with the same camera setup share one feature extraction call."""
+
+    setup: _CameraSetup
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -99,7 +138,7 @@ class _Limits:
 
 class SfmStage(Stage):
     name: ClassVar[str] = "sfm"
-    version: ClassVar[str] = "1"
+    version: ClassVar[str] = "2"  # 2: camera profiles, sfm/cameras/ (KAN-29)
     uses_gpu: ClassVar[bool] = True
     applies_vram_limit: ClassVar[bool] = False  # COLMAP runs in its own container
 
@@ -120,7 +159,8 @@ class SfmStage(Stage):
                 "Die Einzelbilder fehlen: Stufe 'ingest' ist nicht erfolgreich gelaufen.",
                 [INPUT_MISSING_HINT],
             )
-        return [
+        # scan.yaml holds the camera profiles: a changed profile invalidates the result.
+        return [scan_file] + [
             ingest / flight.id / part for flight in flights for part in (FRAMES_TABLE, FRAMES_DIR)
         ]
 
@@ -134,6 +174,7 @@ class SfmStage(Stage):
     def run(self, ctx: StageContext) -> None:
         work = ctx.out_dir / COLMAP_DIR
         images = _keyframes(ctx.inputs)
+        groups = _camera_groups(ctx, load_scan(ctx.scan_dir).flights, images)
         ctx.metrics["colmap_image_id"] = image_id()
         if ctx.metrics["colmap_image_id"] == "missing":  # before old results are removed
             raise StageError(
@@ -141,10 +182,15 @@ class SfmStage(Stage):
                 UNAVAILABLE_HINTS,
             )
         try:
-            if work.exists():
-                shutil.rmtree(work)
+            for old in (work, ctx.out_dir / CAMERAS_DIR):
+                if old.exists():
+                    shutil.rmtree(old)
             (work / _MODELS_DIR).mkdir(parents=True)
             (work / _IMAGE_LIST).write_text("\n".join(images) + "\n", encoding="utf-8")
+            for index, group in enumerate(groups):
+                if len(groups) > 1:
+                    text = "\n".join(group.images) + "\n"
+                    (work / _group_list(index)).write_text(text, encoding="utf-8")
         except OSError as exc:
             raise StageError("Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]) from exc
         colmap = Colmap(
@@ -156,7 +202,7 @@ class SfmStage(Stage):
             log_dir=work / "logs",
         )
         try:
-            _Reconstruction(ctx, colmap, work, images).run()
+            _Reconstruction(ctx, colmap, work, images, groups).run()
         except ColmapUnavailableError as exc:
             raise StageError(str(exc), UNAVAILABLE_HINTS) from exc
         except ColmapOutOfMemoryError as exc:
@@ -170,12 +216,20 @@ class SfmStage(Stage):
 class _Reconstruction:
     """One run of the COLMAP steps; collects metrics in the stage context."""
 
-    def __init__(self, ctx: StageContext, colmap: Colmap, work: Path, images: list[str]) -> None:
+    def __init__(
+        self,
+        ctx: StageContext,
+        colmap: Colmap,
+        work: Path,
+        images: list[str],
+        groups: list[_CameraGroup],
+    ) -> None:
         self._ctx = ctx
         self._cfg: SfmSettings = ctx.settings.sfm
         self._colmap = colmap
         self._work = work
         self._images = images
+        self._groups = groups
         self._exhaustive = len(images) <= self._cfg.exhaustive_max_keyframes
         self._seconds: dict[str, float] = {}
 
@@ -222,18 +276,26 @@ class _Reconstruction:
             self._match(reduced)
 
     def _extract(self, limits: _Limits) -> None:
-        options: dict[str, str | int | float] = {
-            "database_path": f"/sfm/{_DATABASE}",
-            "image_path": "/ingest",
-            "image_list_path": f"/sfm/{_IMAGE_LIST}",
-            "ImageReader.camera_model": self._cfg.camera_model,
-            "ImageReader.single_camera_per_folder": 1,  # one folder per flight
-            "FeatureExtraction.use_gpu": 1,
-            "FeatureExtraction.gpu_index": 0,  # the container sees a single GPU
-            "FeatureExtraction.max_image_size": limits.image_edge_px,
-            "SiftExtraction.max_num_features": limits.num_features,
-        }
-        self._record("features", self._colmap.run("feature_extractor", options, gpu=True))
+        """One call per camera setup (the ImageReader options apply to all listed images)."""
+        for index, group in enumerate(self._groups):
+            image_list = _IMAGE_LIST if len(self._groups) == 1 else _group_list(index)
+            options: dict[str, str | int | float] = {
+                "database_path": f"/sfm/{_DATABASE}",
+                "image_path": "/ingest",
+                "image_list_path": f"/sfm/{image_list}",
+                "ImageReader.camera_model": group.setup.model,
+                "ImageReader.single_camera_per_folder": 1,  # one folder per flight
+                "FeatureExtraction.use_gpu": 1,
+                "FeatureExtraction.gpu_index": 0,  # the container sees a single GPU
+                "FeatureExtraction.max_image_size": limits.image_edge_px,
+                "SiftExtraction.max_num_features": limits.num_features,
+            }
+            if group.setup.params is not None:
+                options["ImageReader.camera_params"] = ",".join(
+                    f"{value:.17g}" for value in group.setup.params
+                )
+            result = self._colmap.run("feature_extractor", options, gpu=True)
+            self._record("features", result)
 
     def _match(self, limits: _Limits) -> None:
         options: dict[str, str | int | float] = {
@@ -340,6 +402,32 @@ class _Reconstruction:
         sparse = self._work / SPARSE_DIR
         sparse.parent.mkdir()
         text_dir.rename(sparse)
+        self._store_cameras(report, sparse)
+
+    def _store_cameras(self, report: ModelReport, sparse: Path) -> None:
+        """Estimated intrinsics per flight as camera profiles (reusable with --camera)."""
+        cameras = read_cameras(sparse)
+        flight_cameras: dict[str, int] = {}
+        for image, camera_id in report.image_cameras.items():
+            flight_cameras.setdefault(_flight(image), camera_id)
+        metrics = self._ctx.metrics["cameras"]
+        for flight, camera_id in sorted(flight_cameras.items()):
+            camera = cameras[camera_id]
+            intrinsics = Intrinsics(width=camera.width, height=camera.height, params=camera.params)
+            profile = CameraProfile(
+                name=flight,
+                description=f"Von COLMAP geschätzt (Flug {flight}).",
+                model=camera.model,  # type: ignore[arg-type]  # one of the models we passed
+                intrinsics=intrinsics,
+                source="colmap",
+            )
+            try:
+                write_camera(profile, self._ctx.out_dir / CAMERAS_DIR / f"{flight}.yaml")
+            except OSError as exc:
+                raise StageError(
+                    "Ergebnisse konnten nicht geschrieben werden.", [WRITE_HINT]
+                ) from exc
+            metrics[flight]["estimated"] = intrinsics.model_dump()
 
     def _per_flight(self, report: ModelReport) -> dict[str, dict[str, int]]:
         flights: dict[str, dict[str, int]] = {}
@@ -361,6 +449,64 @@ class _Reconstruction:
                 if counts["registered"] < self._cfg.min_registration_ratio * counts["keyframes"]
             ]
         return hints
+
+
+def _group_list(index: int) -> str:
+    return f"image_list_{index}.txt"
+
+
+def _frame_size(scan_dir: Path, flight: str) -> tuple[int, int]:
+    path = scan_dir / IngestStage.name / flight / MANIFEST_NAME
+    try:
+        summary = FlightSummary.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise InputMissingError(
+            f"Flug {flight}: Angaben zu den Einzelbildern fehlen.", [INPUT_MISSING_HINT]
+        ) from exc
+    return summary.frame_width, summary.frame_height
+
+
+def _camera_setup(ctx: StageContext, flight: FlightMeta) -> _CameraSetup:
+    profile = flight.camera
+    if profile is None:
+        return _CameraSetup(ctx.settings.sfm.camera_model)
+    if profile.intrinsics is None:
+        return _CameraSetup(profile.model)
+    width, height = _frame_size(ctx.scan_dir, flight.id)
+    params = profile.params_for(width, height)
+    if params is None:
+        ctx.warn(
+            CAMERA_ASPECT_WARNING.format(
+                flight=flight.id,
+                profile=profile.name,
+                profile_size=f"{profile.intrinsics.width}x{profile.intrinsics.height}",
+                frame_size=f"{width}x{height}",
+            )
+        )
+        if CAMERA_ASPECT_HINT not in ctx.hints:
+            ctx.hint(CAMERA_ASPECT_HINT)
+        return _CameraSetup(profile.model)
+    return _CameraSetup(profile.model, tuple(params))
+
+
+def _camera_groups(
+    ctx: StageContext, flights: list[FlightMeta], images: list[str]
+) -> list[_CameraGroup]:
+    """Group the keyframes by camera setup, in the order of the flights."""
+    setups = {flight.id: _camera_setup(ctx, flight) for flight in flights}
+    ctx.metrics["cameras"] = {
+        flight.id: {
+            "profile": flight.camera.name if flight.camera else None,
+            "model": setups[flight.id].model,
+            "start_params": list(setups[flight.id].params or []) or None,
+        }
+        for flight in flights
+    }
+    groups: dict[_CameraSetup, _CameraGroup] = {}
+    for image in images:
+        setup = setups[_flight(image)]
+        groups.setdefault(setup, _CameraGroup(setup)).images.append(image)
+    return list(groups.values())
 
 
 def _flight(image: str) -> str:

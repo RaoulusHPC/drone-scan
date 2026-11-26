@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Camera profile (KAN-29): smartphone main camera. No intrinsics on purpose: they differ per
+# device and video mode, COLMAP estimates them per flight (sfm/cameras/<flight>.yaml).
+# Measured values come from `drone-scan camera calibrate`, never from data sheets.
+name: smartphone
+description: >-
+  Smartphone, Hauptkamera (1x, kein Weitwinkel). Die Intrinsik schätzt COLMAP je Flug.
+  Bildstabilisierung möglichst ausschalten und nicht zoomen, sonst ändert sich die
+  Brennweite während der Aufnahme.
+model: SIMPLE_RADIAL

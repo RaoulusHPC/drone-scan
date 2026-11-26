@@ -165,8 +165,12 @@ for failure in config["failures"]:
         sys.exit(failure["code"])
 
 if command == "feature_extractor":
-    with host(options["--database_path"]).open("x") as handle:
-        handle.write("db")
+    # one call per camera setup; the same image list twice means a stale database
+    database = host(options["--database_path"])
+    image_list = options.get("--image_list_path", "") + "\\n"
+    assert not database.exists() or image_list not in database.read_text()
+    with database.open("a") as handle:
+        handle.write(image_list)
 elif command == "vocab_tree_builder":
     host(options["--vocab_tree_path"]).write_text("tree")
 elif command == "sequential_matcher":
