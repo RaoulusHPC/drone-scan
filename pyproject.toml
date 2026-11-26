@@ -56,11 +56,17 @@ files = ["src", "tests"]
 module = ["pyarrow.*"] # ships no type information
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Only in the worker image (no PyTorch on the host, ADR-0010): dronescan.recon.train.
+module = ["torch.*", "gsplat.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-markers", "-ra", "-p", "pytester"]
 markers = [
-    "gpu: needs CUDA, run via `make test-gpu` with DRONESCAN_VRAM_LIMIT_GB=5.5",
+    "gpu: needs CUDA, run via `make test-gpu` with DRONESCAN_VRAM_LIMIT_GB=5.0",
+    "torch: needs PyTorch/gsplat; with `gpu` it runs in the worker-test container (make test-gpu)",
     "bench: slow benchmarks on reference rooms, not in CI",
     "sitl: needs ArduPilot SITL flight simulation",
 ]

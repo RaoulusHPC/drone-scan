@@ -76,8 +76,16 @@ calibration:
   max_views: 5
   max_rms_error_px: 2.0
 splat:
+  strategy: mcmc
   max_iterations: 1000
   max_gaussians: 10000
+  max_image_edge_px: 400
+  sh_degree: 1
+  holdout_every: 4
+  overfit_warn_gap_db: 4.0
+  oom_retry_max_gaussians: 5000
+  oom_retry_image_edge_px: 320
+  timeout_s: 600
 search:
   detector_batch_size: 1
 """
@@ -153,16 +161,16 @@ def test_vram_limit_overridden_by_environment(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_nested_value_overridden_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Given DRONESCAN_SPLAT__MAX_GAUSSIANS=12345,
+    """Given DRONESCAN_SPLAT__MAX_GAUSSIANS=1234567,
     When the profile is loaded,
     Then only that nested value changes and the rest of the section is kept.
     """
     baseline = load_settings()
-    monkeypatch.setenv("DRONESCAN_SPLAT__MAX_GAUSSIANS", "12345")
+    monkeypatch.setenv("DRONESCAN_SPLAT__MAX_GAUSSIANS", "1234567")
 
     settings = load_settings()
 
-    assert settings.splat.max_gaussians == 12345
+    assert settings.splat.max_gaussians == 1_234_567
     assert settings.splat.max_iterations == baseline.splat.max_iterations
 
 
@@ -299,3 +307,29 @@ def test_calibration_needs_at_least_two_views(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(ValidationError, match="max_views"):
         load_settings()
+
+
+def test_splat_values_follow_spike_01() -> None:
+    """Given the low_vram_6gb profile,
+    When the splat section is read,
+    Then it uses MCMC with 1.5 M Gaussians at 1200 px (spike-01 §7) and a smaller retry.
+    """
+    splat = load_settings("low_vram_6gb").splat
+    assert (splat.strategy, splat.max_gaussians, splat.max_image_edge_px) == (
+        "mcmc",
+        1_500_000,
+        1200,
+    )
+    assert splat.oom_retry_max_gaussians < splat.max_gaussians
+    assert splat.oom_retry_image_edge_px < splat.max_image_edge_px
+
+
+def test_splat_retry_must_be_smaller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given an OOM retry cap that is not smaller than the normal cap,
+    When the settings are loaded,
+    Then validation fails (the retry would hit the same out-of-memory error).
+    """
+    monkeypatch.setenv("DRONESCAN_SPLAT__OOM_RETRY_MAX_GAUSSIANS", "1500000")
+
+    with pytest.raises(ValidationError, match="oom_retry"):
+        load_settings("low_vram_6gb")

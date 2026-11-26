@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Golden thresholds for `make smoke` on data/samples/kurz.mp4 (KAN-26).
+# Golden thresholds for `make smoke` on data/samples/kurz.mp4 (KAN-26, mini splat KAN-41).
 # Thresholds, not exact values. Measured on the GTX 1060 (main 84743a6, 2026-11-26):
 # 30/30 registered, 0.61 px, 8752 points, peak 844 MiB, ingest + sfm 49 s.
+# Mini splat (a8eeea3, 2026-11-26): PSNR 22.75 dB, SSIM 0.840, 9799 Gaussians, process peak
+# 236 MiB incl. CUDA context; poses 53 s, poses + splat 96 s.
 # Raise `version` whenever a threshold changes.
-version: 1
+version: 3
 clip: data/samples/kurz.mp4
 profile: low_vram_6gb
 max_seconds: 120            # AC: whole smoke run below 2 min
@@ -12,5 +14,12 @@ poses:
   max_reproj_error_px: 1.0
   min_points: 4000
   max_peak_vram_mib: 5632     # 5.5 GiB budget per process incl. CUDA context
-splat:
-  min_psnr_db: null           # set with KAN-41 (stage recon.splat), skipped until then
+splat:                      # mini splat (stage recon, KAN-41)
+  min_psnr_db: 20.0           # measured 22.75 dB; runs vary by ~0.3 dB (spike-01)
+  overrides:                  # profile values for the smoke run (DRONESCAN_SPLAT__<NAME>)
+    max_iterations: 1000
+    max_image_edge_px: 480
+    max_gaussians: 200000
+    sh_degree: 1
+    oom_retry_max_gaussians: 100000
+    oom_retry_image_edge_px: 320

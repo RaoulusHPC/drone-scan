@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from dronescan.common.config import load_settings  # noqa: E402
 from dronescan.common.gpu_lock import stage_gpu_lock  # noqa: E402
 
 SITL_ENV_VAR = "DRONESCAN_SITL"
+REQUIRE_GPU_ENV_VAR = "DRONESCAN_TEST_REQUIRE_GPU"  # set by the worker-test container (KAN-41)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -35,6 +36,26 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("sitl"):
             item.add_marker(skip)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """In the worker-test container a skipped `torch` test is a failure (KAN-41).
+
+    There PyTorch, gsplat and the GPU must be present, so a skip ("no CUDA device", "not
+    enough free VRAM", ...) would hide that the test never ran.
+    """
+    report: pytest.TestReport = yield
+    if (
+        report.skipped
+        and os.environ.get(REQUIRE_GPU_ENV_VAR) == "1"
+        and item.get_closest_marker("torch")
+    ):
+        report.outcome = "failed"
+        report.longrepr = f"übersprungen, aber im worker-test-Container Pflicht: {report.longrepr}"
+    return report
 
 
 @pytest.fixture(autouse=True)

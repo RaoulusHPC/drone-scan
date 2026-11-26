@@ -129,7 +129,7 @@ flowchart TB
 | `capture` | Video/Telemetrie entgegennehmen, Metadaten (Kamera, Zeit, Flug-ID) erfassen; Adapter `VideoFile`, `Tello` (optional), `ArduPilot` (M5) | ffmpeg/ffprobe (LGPL), djitellopy (MIT), pymavlink (LGPL-3.0) / MAVSDK (BSD-3) |
 | `ingest` | Dekodieren, Schärfefilter (Laplace-Varianz), Duplikat- und Bewegungsfilter, Keyframe-Auswahl, Belichtungsprüfung, Qualitätsreport mit Handlungsempfehlungen | ffmpeg, NumPy (BSD-3-Clause), PyArrow (Apache-2.0) |
 | `sfm` | Features, Matching (sequenziell + Loop), Mapping, AprilTag-Erkennung → metrischer Maßstab + Schwerkraftausrichtung, Zusammenführen mehrerer Flüge | COLMAP (BSD-3), pycolmap, AprilTag (BSD-2) |
-| `recon.splat` | Gaussian-Splatting-Training mit VRAM-Profil, Komprimierung (SPZ), Qualitätsmetriken (PSNR/SSIM auf Validierungsframes) | gsplat (Apache-2.0), Nerfstudio (Apache-2.0) optional |
+| `recon.splat` | Gaussian-Splatting-Training mit VRAM-Profil (MCMC, Entzerrung mit COLMAP, Training im `worker`-Container, ein OOM-Wiederholungsversuch), Komprimierung (SPZ), Qualitätsmetriken (PSNR/SSIM auf Validierungsframes) | gsplat (Apache-2.0), Nerfstudio (Apache-2.0) optional |
 | `recon.mesh` *(optional)* | Mesh aus Tiefen/TSDF oder OpenMVS als **separates Werkzeug** | Open3D (MIT), OpenMVS (AGPL-3.0, nur als CLI-Prozess) |
 | `recon.floorplan` *(optional)* | Horizontalschnitt → 2D-Polygon, Flächen ±10 % | Shapely (BSD), Open3D |
 | `search` | Pro Keyframe Detektionen + Embeddings → Vektorindex; Textanfrage → Kandidaten → Mehrfachsicht-Triangulation → 3D-Marker mit Konfidenz + Belegbildern | OWLv2 / Grounding DINO (Apache-2.0), OpenCLIP (MIT), FAISS (MIT), SAM 2 (Apache-2.0) optional |
@@ -197,7 +197,8 @@ workspace/<scan_id>/                 # ein Gebäude/Objekt, eine Erfassungskampa
   ingest/manifest.json               # Stufenmanifest
   ingest/<flight_id>/frames/*.jpg, frames.parquet, manifest.json, quality.json
   sfm/colmap/{database.db, sparse/0, models/*, logs/}, sfm/cameras/<flight_id>.yaml, sfm/aligned/{transform.json, scale_report.json}
-  recon/splat/{scene.ply, scene.spz, metrics.json}, recon/mesh/scene.glb, recon/floorplan/plan.svg
+  recon/manifest.json (CLI-Stufe `recon` = recon.splat, KAN-41), recon/splat/{scene.ply, scene.spz, metrics.json}, recon/work/{logs/, undistorted/sparse/}
+  recon/mesh/scene.glb, recon/floorplan/plan.svg
   search/{detections.parquet, embeddings.faiss, objects.json}
   export/viewer_bundle/, export/scene.gltf, export/pointcloud.e57
   reports/summary.json
@@ -317,7 +318,8 @@ Propellerschutz ist Pflicht. Not-Aus liegt auf einem Schalter der Fernsteuerung.
 ### 8.8 Teststrategie
 - Unit-Tests (CPU) für alle Stufen.
 - Golden-Data-Integrationstest mit einem Kurzvideo (`data/samples/`, < 30 s) und einer Laufzeit unter 2 min.
-  `make smoke` (`python -m dronescan.common.smoke`) führt `ingest` und `sfm` auf `data/samples/kurz.mp4` aus und prüft die Schwellwerte in `tests/golden/kurz.yaml` (Exit 0 = ok, 1 = Abweichung oder Stufenfehler). Die Stufe `recon.splat` (KAN-41) wird automatisch mitgeprüft, sobald das CLI-Kommando `recon` existiert; der Splat-Test erwartet dann `metrics.psnr_db` im Manifest.
+  `make smoke` (`python -m dronescan.common.smoke`) führt `ingest`, `sfm` und `recon` (Mini-Splat) auf `data/samples/kurz.mp4` aus und prüft die Schwellwerte in `tests/golden/kurz.yaml` (Exit 0 = ok, 1 = Abweichung oder Stufenfehler), darunter `metrics.psnr_db` der Stufe `recon`. Der Mini-Splat nutzt das Profil mit den Werten aus `splat.overrides` der Golden-Datei (als `DRONESCAN_SPLAT__<NAME>`), damit Posen und Splat unter 2 min bleiben (KAN-41).
+  `make test-gpu` hat zwei Teile: Auf dem Host laufen die GPU-Tests, die Container steuern (`-m "gpu and not torch"`). Im Container `worker-test` laufen die PyTorch/gsplat-Tests (`-m "gpu and torch"`). Dieser Container ist das Worker-Image plus Dev-Gruppe aus `uv.lock` (Build-Target `test`, Compose-Profil `test`). Er testet das read-only eingebundene Repository aus dem Quellcode, ohne Netz, mit ausgeblendetem `data/` und `workspace/`. Ein übersprungener `torch`-Test zählt dort als Fehler. Image bauen: `docker compose --profile test build worker-test`.
 - GPU-Tests (`-m gpu`) mit VRAM-Grenze.
 - Benchmarks (`-m bench`) auf 3 Referenzräumen mit Metriken.
 - Viewer: Playwright-E2E (Apache-2.0).

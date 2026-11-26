@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from dronescan.common.config import load_settings
 from dronescan.common.smoke import (
     GOLDEN_DEFAULT,
     SAMPLE_CLIP,
@@ -18,7 +19,8 @@ from dronescan.common.smoke import (
     load_golden,
     run_smoke,
 )
-from dronescan.sfm.colmap import image_id
+from dronescan.recon.worker import WORKER_IMAGE, docker_image_id
+from dronescan.sfm.colmap import COLMAP_IMAGE
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -30,7 +32,7 @@ def good() -> Measured:
         reproj_error_px=0.61,
         points=8752,
         peak_vram_mib=844.0,
-        psnr_db=None,
+        psnr_db=24.0,
     )
 
 
@@ -108,12 +110,27 @@ def test_missing_vram_peak_is_a_violation() -> None:
     assert any("VRAM" in v for v in violations)
 
 
+def test_splat_overrides_become_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given the mini-splat overrides of the golden file,
+    When the recon stage loads its profile with them as DRONESCAN_SPLAT__<NAME>,
+    Then the profile is valid (retry values smaller) and describes a mini splat.
+    """
+    for name, value in golden().splat.environment().items():
+        monkeypatch.setenv(name, value)
+
+    splat = load_settings(golden().profile).splat
+
+    assert splat.model_dump(include=set(golden().splat.overrides)) == golden().splat.overrides
+    assert splat.max_iterations <= 2000  # not the 15 000 iterations of the profile
+
+
 def test_psnr_is_checked_only_when_threshold_is_set() -> None:
     """Given a PSNR threshold and a splat result below it, Then it is a violation;
     without a threshold the missing splat is not.
     """
     g = golden()
-    assert evaluate(g, good()) == []
+    g = g.model_copy(update={"splat": g.splat.model_copy(update={"min_psnr_db": None})})
+    assert evaluate(g, good().model_copy(update={"psnr_db": None})) == []
     strict = g.model_copy(update={"splat": g.splat.model_copy(update={"min_psnr_db": 20.0})})
 
     assert evaluate(strict, good().model_copy(update={"psnr_db": 18.0}))
@@ -123,14 +140,16 @@ def test_psnr_is_checked_only_when_threshold_is_set() -> None:
 @pytest.mark.gpu
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
 def test_smoke_run_on_sample_clip(tmp_path: Path) -> None:
-    """Given data/samples/kurz.mp4 and the COLMAP image on the GTX 1060,
-    When the smoke run executes ingest and sfm,
-    Then the golden thresholds hold and it finishes within 2 min (AC 1).
+    """Given data/samples/kurz.mp4 and the COLMAP and worker images on the GTX 1060,
+    When the smoke run executes ingest, sfm and the mini splat (recon),
+    Then the golden thresholds incl. PSNR hold and it finishes within 2 min (KAN-26, KAN-41).
     """
-    if image_id() == "missing":
-        pytest.skip("COLMAP image missing: docker compose build colmap")
+    for image in (COLMAP_IMAGE, WORKER_IMAGE):
+        if docker_image_id(image) == "missing":
+            pytest.skip(f"image {image} missing: docker compose build")
 
     result = run_smoke(ROOT, golden(), tmp_path)
 
     assert result.violations == []
     assert result.measured.seconds < 120
+    assert result.measured.psnr_db is not None

@@ -32,6 +32,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
+      target: runtime # the last stage is `test` (worker-test below)
     image: drone-scan/worker:0.1.0
     environment:
       CUDA_DEVICE_ORDER: PCI_BUS_ID
@@ -54,4 +55,31 @@ services:
       DRONESCAN_GPU__LOCK_FILE: /run/drone-scan-gpu/gpu.lock
     volumes:
       - ./workspace:/workspace
+      - *gpu-lock-dir
+
+  # PyTorch GPU tests (`make test-gpu`, KAN-41): worker image plus pytest. The repository is
+  # mounted read-only and tested from source; data/ and workspace/ are hidden (private
+  # recordings never enter the test container). Build: `docker compose --profile test build`.
+  worker-test:
+    <<: *gpu
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      target: test
+    image: drone-scan/worker-test:0.1.0
+    network_mode: none
+    working_dir: /repo
+    environment:
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      DRONESCAN_GPU__LOCK_FILE: /run/drone-scan-gpu/gpu.lock
+      DRONESCAN_PROFILE: ${DRONESCAN_PROFILE:-low_vram_6gb}
+      DRONESCAN_VRAM_LIMIT_GB: ${DRONESCAN_VRAM_LIMIT_GB:-5.0}
+      PYTHONPATH: /repo/src:/repo
+      DRONESCAN_TEST_REQUIRE_GPU: "1"
+    tmpfs:
+      - /repo/data
+      - /repo/workspace
+    volumes:
+      - .:/repo:ro
       - *gpu-lock-dir

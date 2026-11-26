@@ -44,10 +44,18 @@ license-gate: ## Check dependency, npm and model licenses (licenses/*.yaml, mode
 
 check: lint typecheck test license-gate ## Run before every PR: lint, types, CPU tests, licenses
 
-test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB)
-	@# pytest exit code 5 = no tests collected (no GPU tests yet) -> not a failure
+test-gpu: ## GPU tests on the GTX 1060 with VRAM limit (GiB): host (docker/COLMAP) + worker container (PyTorch)
+	@mkdir -p workspace data
+	@mkdir -p "$${DRONESCAN_GPU_LOCK_DIR:-$${XDG_STATE_HOME:-$$HOME/.local/state}/drone-scan}"  # GPU lock dir, mounted into the containers (KAN-80)
+	@# 1) host: tests that drive containers (COLMAP, worker images). Exit 5 = none collected.
 	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) DRONESCAN_GPU_DEVICE=$(GPU_DEVICES) \
-		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m gpu || [ $$? -eq 5 ]
+		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run pytest -m "gpu and not torch" || [ $$? -eq 5 ]
+	@# 2) worker-test container: PyTorch/gsplat tests on the repo source (no PyTorch on the host,
+	@#    KAN-41). A skipped PyTorch test fails there. Image: docker compose --profile test build
+	@docker image inspect drone-scan/worker-test:0.1.0 >/dev/null 2>&1 || { \
+		echo "Image drone-scan/worker-test:0.1.0 fehlt. Abhilfe: docker compose --profile test build worker-test" >&2; exit 1; }
+	DRONESCAN_GPU_DEVICE=$(GPU_DEVICES) DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) \
+		docker compose run --rm -T worker-test
 
 test-sitl: ## Flight tests against ArduPilot SITL (needs the SITL container, M5)
 	@# pytest exit code 5 = no tests collected (no SITL tests yet) -> not a failure
@@ -60,7 +68,7 @@ docker-check: ## GPU visible in the worker container? (expects e.g. (6, 1) on th
 	docker compose run --rm worker python -W always -c \
 		"import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability())"
 
-smoke: ## Pipeline on data/samples/kurz.mp4 (poses; mini splat follows with KAN-41), GTX 1060
+smoke: ## Pipeline on data/samples/kurz.mp4 (poses + mini splat), GTX 1060
 	CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=$(GPU_DEVICES) DRONESCAN_GPU_DEVICE=$(GPU_DEVICES) \
 		DRONESCAN_VRAM_LIMIT_GB=$(VRAM_LIMIT_GB) $(UV) run python -m dronescan.common.smoke
 
