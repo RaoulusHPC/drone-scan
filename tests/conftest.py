@@ -9,8 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from dronescan.common.config import load_settings
-from dronescan.common.gpu_lock import stage_gpu_lock
+# Typer forces a coloured terminal on GitHub Actions (GITHUB_ACTIONS, FORCE_COLOR, PY_COLORS):
+# the ANSI codes split option names like "--name" in CliRunner output, so CLI tests would pass
+# locally and fail in CI. Typer reads this switch once on import, hence before any dronescan
+# import (tests/test_cli.py checks that it took effect).
+os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
+
+from dronescan.common.config import load_settings  # noqa: E402
+from dronescan.common.gpu_lock import stage_gpu_lock  # noqa: E402
 
 SITL_ENV_VAR = "DRONESCAN_SITL"
 

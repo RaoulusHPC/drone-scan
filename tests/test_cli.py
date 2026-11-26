@@ -127,3 +127,21 @@ def test_config_command_unknown_profile_exits_2() -> None:
 
     assert result.exit_code == 2
     assert "low_vram_6gb" in result.output
+
+
+def test_cli_output_has_no_ansi_codes_in_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given the environment of GitHub Actions (Typer then forces a coloured terminal),
+    When a CLI error is printed,
+    Then the output contains no ANSI codes, so option names can be asserted in all CLI tests
+    (switch set in tests/conftest.py).
+    """
+    import typer.rich_utils
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    result = CliRunner().invoke(app, ["config", "--profile", "UNGÜLTIG"])
+
+    assert typer.rich_utils.FORCE_TERMINAL is False
+    assert result.exit_code == 2
+    assert "\x1b[" not in result.output
+    assert "--profile" in result.output
