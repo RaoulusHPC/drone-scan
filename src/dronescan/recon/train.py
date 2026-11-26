@@ -69,6 +69,10 @@ TRAIN_VIEW_SAMPLES = 8  # training views evaluated for the overfitting check
 # top-k buffers. Budgeted in bytes so the start does not grow with the SfM point count (vram-guard).
 NEIGHBOUR_BUDGET_BYTES = 256 * MIB
 _NEIGHBOUR_BYTES_PER_ENTRY = 4 * 3  # fp32 distances, cdist/topk temporaries
+# The exact search is O(P²): 3.6 s for 100k points, ~20 min for 1.5 M on the GTX 1060 (KAN-41).
+# Above this size a Morton-order window search is used (O(P)).
+EXACT_KNN_MAX_POINTS = 100_000
+KNN_WINDOW = 16  # neighbours on each side along the Morton curve
 LEARNING_RATES = {
     "means": 1.6e-4,  # times the scene scale
     "scales": 5e-3,
@@ -188,6 +192,63 @@ def neighbour_chunk(count: int) -> int:
     return max(1, min(count, NEIGHBOUR_BUDGET_BYTES // (count * _NEIGHBOUR_BYTES_PER_ENTRY)))
 
 
+def _exact_neighbours(points: torch.Tensor, k: int) -> torch.Tensor:
+    """Distances to the ``k`` nearest other points [P, k]; O(P²), chunked by a byte budget."""
+    chunk = neighbour_chunk(len(points))
+    nearest = []
+    for start in range(0, len(points), chunk):
+        # matmul form (fast; fp32 rounding at mm distances is fine for an initial size,
+        # the direct form takes 40x longer on the GTX 1060)
+        distances = torch.cdist(points[start : start + chunk], points)
+        nearest.append(distances.topk(k + 1, largest=False).values[:, 1:])
+        del distances
+    return torch.cat(nearest)
+
+
+def _spread_bits(values: torch.Tensor) -> torch.Tensor:
+    """Insert two zero bits between the lowest 21 bits (3D Morton code, int64)."""
+    x = values & 0x1FFFFF
+    for shift, mask in ((32, 0x1F00000000FFFF), (16, 0x1F0000FF0000FF), (8, 0x100F00F00F00F00F),
+                        (4, 0x10C30C30C30C30C3), (2, 0x1249249249249249)):  # fmt: skip
+        x = (x | (x << shift)) & mask
+    return x
+
+
+def _window_neighbours(points: torch.Tensor, k: int) -> torch.Tensor:
+    """Approximate distances to the ``k`` nearest points [P, k] in O(P · window).
+
+    Points are sorted along a Morton (Z-order) curve and compared only with their
+    ``KNN_WINDOW`` predecessors and successors in that order. Neighbours across a cell border
+    can be far apart on the curve, so the search is repeated on a grid shifted by half the
+    extent and the smaller distances are kept. Good enough for the initial Gaussian size,
+    which the optimiser adapts anyway.
+    """
+    low, high = points.min(0).values, points.max(0).values
+    extent = (high - low).max().clamp_min(MIN_NEIGHBOUR_DISTANCE)
+    best = torch.full((len(points), k), torch.inf, device=points.device)
+    for shift in (0.0, 0.5):
+        grid = ((points - low) / extent + shift) / (1.0 + shift) * (2**21 - 1)
+        cells = grid.long()
+        codes = _spread_bits(cells[:, 0]) | (_spread_bits(cells[:, 1]) << 1)
+        codes = codes | (_spread_bits(cells[:, 2]) << 2)
+        order = codes.argsort()
+        ordered = points[order]
+        found = torch.full((len(points), k), torch.inf, device=points.device)
+        for offset in range(1, KNN_WINDOW + 1):
+            for other in (ordered.roll(offset, 0), ordered.roll(-offset, 0)):
+                distance = (ordered - other).norm(dim=1)  # wraps at the ends: only too large
+                found = torch.cat([found, distance[:, None]], dim=1).topk(k, largest=False).values
+        best[order] = torch.minimum(best[order], found)
+    return best
+
+
+def neighbour_distances(points: torch.Tensor, k: int) -> torch.Tensor:
+    """Distances to the ``k`` nearest other points: exact for small clouds, else approximate."""
+    if len(points) <= EXACT_KNN_MAX_POINTS:
+        return _exact_neighbours(points, k)
+    return _window_neighbours(points, k)
+
+
 def limit_points(data: Data, max_points: int, seed: int) -> None:
     """Thin the SfM cloud to ``max_points`` (MCMC only grows: more start points than the cap
     would keep the model above it for the whole run)."""
@@ -201,14 +262,8 @@ def init_splats(data: Data, sh_degree: int, device: torch.device) -> torch.nn.Pa
     points, colors = data.points.to(device), data.colors.to(device)
     count = len(points)
     if count > 1:
-        neighbours = min(3, count - 1)
-        chunk = neighbour_chunk(count)
-        nearest = []
-        for start in range(0, count, chunk):
-            distances = torch.cdist(points[start : start + chunk], points)
-            nearest.append(distances.topk(neighbours + 1, largest=False).values[:, 1:])
-            del distances
-        dist_avg = torch.cat(nearest).pow(2).mean(dim=-1).sqrt().clamp_min(MIN_NEIGHBOUR_DISTANCE)
+        nearest = neighbour_distances(points, min(3, count - 1))
+        dist_avg = nearest.pow(2).mean(dim=-1).sqrt().clamp_min(MIN_NEIGHBOUR_DISTANCE)
     else:
         dist_avg = torch.full((count,), data.scene_scale * SINGLE_POINT_SCALE, device=device)
     rest = (sh_degree + 1) ** 2 - 1

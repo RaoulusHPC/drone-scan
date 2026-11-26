@@ -177,4 +177,43 @@ def test_start_points_are_thinned_to_the_cap() -> None:
 
     assert len(first.points) == 1000 == len(first.colors)
     assert torch.equal(first.points, second.points)
-    assert torch.equal(first.colors * 3000, first.points)  # rows stay paired
+    assert torch.allclose(first.colors * 3000, first.points)  # rows stay paired (float /3000)
+
+
+def test_neighbour_search_is_fast_and_close_for_large_clouds() -> None:
+    """Given a room-like cloud above the exact-search size (walls of a 5 x 4 x 2.6 m box),
+    When the neighbour distances for the initial Gaussian size are computed,
+    Then the Morton-window search matches the exact one closely (median ratio ~1) and
+    1.5 M points take seconds, not the ~20 min of the O(P²) search (KAN-41 test-gpu run).
+    """
+    import time
+
+    import torch
+
+    from dronescan.recon import train as trainer
+
+    generator = torch.Generator().manual_seed(0)
+    room = torch.tensor([5.0, 4.0, 2.6])
+
+    def cloud(count: int) -> torch.Tensor:
+        points = torch.rand(count, 3, generator=generator) * room
+        axis = torch.randint(0, 3, (count,), generator=generator)
+        side = torch.randint(0, 2, (count,), generator=generator).float()
+        points[torch.arange(count), axis] = side * room[axis]
+        return points.cuda()
+
+    points = cloud(trainer.EXACT_KNN_MAX_POINTS + 20_000)
+    exact = trainer._exact_neighbours(points, 3).pow(2).mean(1).sqrt()
+    approx = trainer.neighbour_distances(points, 3).pow(2).mean(1).sqrt()
+    ratio = approx / exact
+    # the window search never finds closer points; "exact" has fp32 rounding (matmul form)
+    assert ratio.quantile(0.01) > 0.95
+    assert ratio.median() < 1.05 and ratio.quantile(0.9) < 1.5
+
+    large = cloud(1_500_000)
+    torch.cuda.synchronize()
+    started = time.perf_counter()
+    distances = trainer.neighbour_distances(large, 3)
+    torch.cuda.synchronize()
+    assert time.perf_counter() - started < 60
+    assert torch.isfinite(distances).all()
