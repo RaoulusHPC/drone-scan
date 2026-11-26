@@ -15,12 +15,17 @@ dependencies = [
     "typer>=0.15",
 ]
 
+[project.optional-dependencies]
+# `drone-scan camera calibrate` (KAN-29); not installed in the worker image.
+calibration = ["opencv-python-headless>=4.10"]
+
 [project.scripts]
 drone-scan = "dronescan.cli:app"
 
 [dependency-groups]
 dev = [
     "mypy>=1.13",
+    "opencv-python-headless>=4.10", # same as the `calibration` extra, for the tests
     "pre-commit>=4.0",
     "pytest>=8.3",
     "ruff>=0.8",

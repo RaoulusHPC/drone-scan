@@ -156,6 +156,10 @@ def host(path):
 
 
 for failure in config["failures"]:
+    if failure["command"] == command and failure.get("skip", 0) > 0:
+        failure["skip"] -= 1  # let this call pass, fail a later one
+        (state / "config.json").write_text(json.dumps(config))
+        continue
     if failure["command"] == command and failure["times"] > 0:
         failure["times"] -= 1
         (state / "config.json").write_text(json.dumps(config))
@@ -165,8 +169,12 @@ for failure in config["failures"]:
         sys.exit(failure["code"])
 
 if command == "feature_extractor":
-    with host(options["--database_path"]).open("x") as handle:
-        handle.write("db")
+    # one call per camera setup; the same image list twice means a stale database
+    database = host(options["--database_path"])
+    image_list = options.get("--image_list_path", "") + "\\n"
+    assert not database.exists() or image_list not in database.read_text()
+    with database.open("a") as handle:
+        handle.write(image_list)
 elif command == "vocab_tree_builder":
     host(options["--vocab_tree_path"]).write_text("tree")
 elif command == "sequential_matcher":
@@ -222,8 +230,14 @@ class FakeDocker:
         self.config["models"] = [[size, 100] for size in sizes]
         self.save()
 
-    def fail(self, command: str, output: str, code: int = 1, times: int = 1) -> None:
-        failure = {"command": command, "output": output, "code": code, "times": times}
+    def fail(self, command: str, output: str, code: int = 1, times: int = 1, skip: int = 0) -> None:
+        failure = {
+            "command": command,
+            "output": output,
+            "code": code,
+            "times": times,
+            "skip": skip,
+        }
         self.config["failures"].append(failure)
         self.save()
 

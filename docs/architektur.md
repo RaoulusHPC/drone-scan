@@ -181,6 +181,12 @@ Umsetzung Kameraposen (KAN-36): `drone-scan sfm --scan workspace/<id>` läuft au
 - **VRAM:** COLMAP unterliegt nicht der PyTorch-Grenze. Bildkante, Merkmale und Matcher-Kapazität stehen im Profil, der Peak des COLMAP-Prozesses wird mit `nvidia-smi` abgetastet (alle 0,25 s, also eine untere Schranke). COLMAP meldet fehlenden Grafikspeicher teils nur im Log (Code 0), der Adapter wertet deshalb das Log aus, wiederholt einmal mit `oom_retry_*` und endet sonst mit Exit 30. Die GPU-Sperre gilt auch während des Mappers (CPU); bei langen Scans kann das `gpu.lock_timeout_s` anderer Stufen überschreiten.
 - **Cache:** Schlüssel ist der Image-Tag, nicht die Image-ID (ein gestopptes Docker darf kein Ergebnis entwerten). Änderungen am COLMAP-Dockerfile brauchen deshalb einen neuen Tag oder `--force`. Die Image-ID steht unter `metrics`.
 
+Umsetzung Kameraprofile (KAN-29): Ein Kameraprofil ist eine YAML-Datei mit `name`, `description`, COLMAP-Kameramodell (`SIMPLE_PINHOLE`, `PINHOLE`, `SIMPLE_RADIAL`, `RADIAL`, `OPENCV`, `OPENCV_FISHEYE`), optional `intrinsics` (`width`, `height`, `params` in COLMAP-Reihenfolge und -Pixelkonvention, Mitte des ersten Pixels bei 0,5) und `source` (`manual`, `calibration`, `colmap`). Mitgeliefert wird nur `smartphone` (Hauptkamera, `SIMPLE_RADIAL`, ohne Zahlenwerte); Drohnenprofile folgen, sobald Geräte vorhanden sind (PO-Entscheidung 25.11.2026, keine Datenblattwerte).
+- **Zuordnung:** `drone-scan flight add <scan> <video> --camera <name|pfad>` speichert eine **Kopie** des Profils beim Flug in `scan.yaml`; der Scan bleibt so reproduzierbar. `drone-scan camera list` zeigt die mitgelieferten Profile.
+- **sfm:** Ohne Profil gilt `sfm.camera_model` aus dem Konfigurationsprofil, COLMAP schätzt die Intrinsik. Mit Profil bekommt COLMAP dessen Modell und, falls vorhanden, die auf die Keyframe-Größe skalierte Intrinsik als Startwert (`ImageReader.camera_params`); COLMAP verfeinert sie weiter. Flüge mit verschiedenen Einstellungen werden in getrennten `feature_extractor`-Aufrufen eingelesen, Matching und Mapper laufen gemeinsam. Passt das Seitenverhältnis des Profils nicht zu den Keyframes (anderer Videomodus), entfällt der Startwert mit Warnung. `scan.yaml` ist Eingabe der Stufe: Ein geändertes Profil entwertet den Cache.
+- **Ergebnis:** Die geschätzte Intrinsik steht je Flug als Profil in `sfm/cameras/<flight_id>.yaml` (`source: colmap`, direkt mit `--camera` wiederverwendbar) und im Manifest unter `metrics.cameras`.
+- **Kalibrierung (optional):** `drone-scan camera calibrate <video> --name … --cols … --rows … --square-mm … [--pattern charuco --marker-mm … --dictionary …] [--model OPENCV|OPENCV_FISHEYE|…]` sucht das Muster (Felder zählen, nicht innere Ecken) in `calibration.sample_fps` Bildern pro Sekunde (lange Kante ≤ `calibration.max_image_edge_px`) und kalibriert mit OpenCV. Weniger als `calibration.min_views` Ansichten oder Restfehler über `calibration.max_rms_error_px` → Exit 20 mit Hinweisen. OpenCV (`opencv-python-headless`, Apache-2.0) ist das optionale Extra `calibration` und nicht im Worker-Image.
+
 ### 5.3 Datenmodell / Artefakt-Layout
 
 ```text
@@ -190,7 +196,7 @@ workspace/<scan_id>/                 # ein Gebäude/Objekt, eine Erfassungskampa
   flights/<flight_id>/telemetry.csv  # optional
   ingest/manifest.json               # Stufenmanifest
   ingest/<flight_id>/frames/*.jpg, frames.parquet, manifest.json, quality.json
-  sfm/colmap/{database.db, sparse/0, models/*, logs/}, sfm/aligned/{transform.json, scale_report.json}
+  sfm/colmap/{database.db, sparse/0, models/*, logs/}, sfm/cameras/<flight_id>.yaml, sfm/aligned/{transform.json, scale_report.json}
   recon/splat/{scene.ply, scene.spz, metrics.json}, recon/mesh/scene.glb, recon/floorplan/plan.svg
   search/{detections.parquet, embeddings.faiss, objects.json}
   export/viewer_bundle/, export/scene.gltf, export/pointcloud.e57

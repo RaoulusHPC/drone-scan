@@ -68,6 +68,13 @@ sfm:
   oom_retry_image_edge_px: 400
   oom_retry_num_features: 1000
   oom_retry_num_matches: 1000
+calibration:
+  sample_fps: 1
+  max_image_edge_px: 640
+  min_corners_per_view: 6
+  min_views: 3
+  max_views: 5
+  max_rms_error_px: 2.0
 splat:
   max_iterations: 1000
   max_gaussians: 10000
@@ -272,4 +279,23 @@ def test_inconsistent_quality_thresholds_are_rejected(
     monkeypatch.setenv(var, value)
 
     with pytest.raises(ValidationError, match=match):
+        load_settings()
+
+
+def test_calibration_views_must_be_consistent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given more required than usable calibration views (KAN-29),
+    When the settings load,
+    Then they are rejected.
+    """
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MIN_VIEWS", "50")
+
+    with pytest.raises(ValidationError, match="min_views must not exceed max_views"):
+        load_settings()
+
+
+def test_calibration_needs_at_least_two_views(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MIN_VIEWS", "1")
+    monkeypatch.setenv("DRONESCAN_CALIBRATION__MAX_VIEWS", "1")
+
+    with pytest.raises(ValidationError, match="max_views"):
         load_settings()

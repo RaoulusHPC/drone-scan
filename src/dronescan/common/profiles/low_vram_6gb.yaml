@@ -48,6 +48,13 @@ sfm: # values from spike-01 (sections 4, 5, 7), PO decision 2026-11-25 (KAN-36)
   oom_retry_image_edge_px: 1200
   oom_retry_num_features: 4096
   oom_retry_num_matches: 8192
+calibration: # `drone-scan camera calibrate` (KAN-29), CPU only; provisional
+  sample_fps: 2
+  max_image_edge_px: 1920 # the profile is scaled to the keyframe size in `sfm`
+  min_corners_per_view: 8
+  min_views: 10
+  max_views: 40 # evenly spread; calibration time grows with the views
+  max_rms_error_px: 1.0
 splat:
   max_iterations: 30000
   max_gaussians: 1000000 # raise to 1.5M only if KAN-19 measures <= 5.5 GiB in total
