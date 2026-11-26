@@ -4,15 +4,18 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import shutil
 import struct
 import subprocess
+import sys
 import zlib
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq
 import pytest
 import yaml
 
@@ -459,3 +462,90 @@ def test_colmap_extracts_sift_features_on_the_gpu(tmp_path: Path) -> None:
     assert "Creating SIFT GPU feature extractor" in log
     match = re.search(r"Features:\s+(\d+) \(SIFT\)", log)
     assert match and int(match.group(1)) > 0, log[-2000:]
+
+
+def test_worker_runtime_stage_installs_ffmpeg() -> None:
+    """Given the worker Dockerfile (KAN-81),
+    When its runtime stage is read,
+    Then ffmpeg (provides ffprobe) is installed from apt, so `flight add` and `ingest` work.
+    """
+    stage = runtime_stage(WORKER)
+    assert re.search(r"apt-get install\b[^\n]*(\\\n[^\n]*)*\bffmpeg\b", stage)
+
+
+def _drone_scan(args: list[str], *, cwd: Path, image: str | None = None) -> str:
+    """Run `drone-scan` on the host (image None) or in the worker image without network."""
+    if image is None:
+        command = [sys.executable, "-c", "from dronescan.cli import app; app()", *args]
+    else:
+        command = ["docker", "run", "--rm", "--network", "none"]
+        command += ["--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
+        command += ["-v", f"{cwd}:/work", "-w", "/work", image, "drone-scan", *args]
+    result = subprocess.run(
+        command, cwd=cwd, capture_output=True, text=True, timeout=600, check=False
+    )
+    assert result.returncode == 0, f"{args[0]} ({image or 'host'}): {result.stderr[-2000:]}"
+    return result.stdout
+
+
+def _flight_and_ingest(root: Path, video: Path, image: str | None) -> Path:
+    """`scan create`, `flight add`, `ingest` below ``root``; paths are relative to the cwd so
+    the same arguments work on the host and in the container (mounted at /work)."""
+    root.mkdir()
+    shutil.copy(video, root / "video.mp4")
+    out = _drone_scan(["scan", "create", "Synthetik", "--workspace", "ws"], cwd=root, image=image)
+    scan = f"ws/{out.strip().rsplit(':', 1)[1].strip()}"
+    _drone_scan(["flight", "add", scan, "video.mp4"], cwd=root, image=image)
+    _drone_scan(["ingest", "--scan", scan], cwd=root, image=image)
+    return root / scan
+
+
+@pytest.mark.gpu  # needs the image, not the GPU (marker as for the colmap test above)
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="host ffmpeg missing (makes the video)")
+def test_flight_add_and_ingest_in_worker_match_host(tmp_path: Path) -> None:
+    """Given a synthetic video (ffmpeg testsrc2) and the built worker image (needs no GPU),
+    When `scan create`, `flight add` and `ingest` run on the host and in the container
+    (`--network none`, host ffmpeg 8.x vs. image ffmpeg 6.1),
+    Then the same keyframes are selected (same indices, windows, reasons, files) and
+    frames.parquet has the same schema; timestamps agree within 1 microsecond (showinfo
+    prints microseconds, so versions may differ only by rounding) and sharpness within 1 %
+    (scaling in different ffmpeg versions may round pixels differently).
+    """
+    require_image("worker")
+    video = tmp_path / "synthetic.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=12"]
+        + ["-t", "10", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
+        check=True,
+    )
+    version = subprocess.run(
+        ["docker", "run", "--rm", "--network", "none", image_name("worker"), "ffmpeg", "-version"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.startswith("ffmpeg version 6.1"), version.stdout.splitlines()[:1]
+
+    host_scan = _flight_and_ingest(tmp_path / "host", video, None)
+    box_scan = _flight_and_ingest(tmp_path / "box", video, image_name("worker"))
+
+    host_table = pq.read_table(host_scan / "ingest" / "f01" / "frames.parquet")
+    box_table = pq.read_table(box_scan / "ingest" / "f01" / "frames.parquet")
+    assert box_table.schema == host_table.schema
+    host_rows, box_rows = host_table.to_pylist(), box_table.to_pylist()
+    assert len(box_rows) == len(host_rows) > 0
+    for field in ("index", "window", "selected", "reason", "file"):
+        assert [r[field] for r in box_rows] == [r[field] for r in host_rows], field
+    assert [r["timestamp_s"] for r in box_rows] == pytest.approx(
+        [r["timestamp_s"] for r in host_rows], abs=1e-6
+    )
+    assert [r["sharpness"] for r in box_rows] == pytest.approx(
+        [r["sharpness"] for r in host_rows], rel=0.01
+    )
+    host_jpegs = sorted((host_scan / "ingest" / "f01").rglob("*.jpg"))
+    box_jpegs = sorted((box_scan / "ingest" / "f01").rglob("*.jpg"))
+    assert [p.name for p in box_jpegs] == [p.name for p in host_jpegs]
+    assert len(host_jpegs) == sum(r["selected"] for r in host_rows) > 0

@@ -74,8 +74,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_DEVICE_ORDER=PCI_BUS_ID \
     PYTHONUNBUFFERED=1
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3.12 libgomp1 \
+    && apt-get install -y --no-install-recommends python3.12 libgomp1 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+# ffmpeg (Ubuntu 24.04: 6.1, provides ffprobe) is used by `flight add` and `ingest` (KAN-81).
+# It runs only as an external process, never linked; its license texts stay in
+# /usr/share/doc/ffmpeg (CLAUDE.md rule 1, image local only).
 COPY --from=build /opt/venv /opt/venv
 COPY LICENSE /usr/share/doc/drone-scan/LICENSE
 COPY --from=build /opt/notices/gsplat/ /usr/share/doc/gsplat/
